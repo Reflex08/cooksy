@@ -69,7 +69,7 @@ h1{font-size:26px;font-weight:800;margin:10px 0 4px;letter-spacing:-.5px}
 .itemChip{
   position:relative;display:flex;align-items:center;gap:8px;padding:10px 14px;
   background:var(--card);border-radius:16px;box-shadow:var(--shadow);
-  font-size:15px;font-weight:600;animation:pop .35s ease both;transition:transform .15s;
+  font-size:15px;font-weight:600;animation:fadeUp .18s ease both;transition:transform .15s;
 }
 .itemChip:active{transform:scale(.94)}
 .itemChip .em{font-size:20px}
@@ -117,7 +117,7 @@ h1{font-size:26px;font-weight:800;margin:10px 0 4px;letter-spacing:-.5px}
 }
 .qChip small{display:block;font-size:11px;font-weight:600;color:var(--sub);margin-top:3px;letter-spacing:0}
 .qChip:active{transform:scale(.92)}
-.qChip.sel{background:var(--grad);color:#fff;animation:pop .3s ease}
+.qChip.sel{background:var(--grad);color:#fff}
 .qChip.sel small{color:rgba(255,255,255,.85)}
 .quizNav{display:flex;gap:10px;margin-top:8px}
 .quizNav .bigBtn{padding:16px}
@@ -327,7 +327,7 @@ textarea.field{resize:vertical;min-height:80px}
   </div>
 </nav>
 
-<div id="sheetBack" onclick="closeSheet()"></div>
+<div id="sheetBack" onclick="backdropTap()"></div>
 <div id="sheet"></div>
 <div id="loader"><div class="pan">🍳</div><div class="msg" id="loaderMsg">Cooking up ideas…</div></div>
 <div id="toasts"></div>
@@ -336,11 +336,11 @@ textarea.field{resize:vertical;min-height:80px}
 
 <script>
 'use strict';
-const APP_VERSION = 9;
+const APP_VERSION = 10;
 /* ================= data ================= */
 const store = {
   get(k, d){ try{ const v = JSON.parse(localStorage.getItem('cooksy.'+k)); return v === null || v === undefined ? d : v }catch(e){ return d } },
-  set(k, v){ localStorage.setItem('cooksy.'+k, JSON.stringify(v)) }
+  set(k, v){ try{ localStorage.setItem('cooksy.'+k, JSON.stringify(v)) }catch(e){ toast('Storage full — couldn’t save'); } }
 };
 const DEFAULT_STAPLES = ['salt','black pepper','olive oil','vegetable oil','butter','flour','sugar','garlic powder','onion powder','paprika','cumin','oregano','cinnamon','soy sauce','vinegar','baking powder','vanilla extract'];
 const CATS = [
@@ -397,6 +397,21 @@ let known    = store.get('known', {});
 let settings = store.get('settings', { apiKey:'', staples: DEFAULT_STAPLES.slice() });
 let lastRecipes = store.get('lastRecipes', null);
 
+// one-time cleanup: earlier versions could persist ~100KB data-URL images
+{
+  let leaked = false;
+  for(const arr of [cooked, saved]) for(const e of arr){
+    if(e && e.recipe && e.recipe.img && e.recipe.img.startsWith('data:')){ delete e.recipe.img; leaked = true; }
+  }
+  if(lastRecipes && lastRecipes.recipes) for(const r of lastRecipes.recipes){
+    if(r.img && r.img.startsWith('data:')){ delete r.img; leaked = true; }
+  }
+  if(leaked){
+    localStorage.setItem('cooksy.cooked', JSON.stringify(cooked));
+    localStorage.setItem('cooksy.saved', JSON.stringify(saved));
+    localStorage.setItem('cooksy.lastRecipes', JSON.stringify(lastRecipes));
+  }
+}
 const saveFridge = () => store.set('fridge', fridge);
 const saveCooked = () => store.set('cooked', cooked);
 const saveSaved  = () => store.set('saved', saved);
@@ -497,7 +512,7 @@ const MODEL_SMART = 'claude-sonnet-5';        // recipe ideas + full recipes
 const MODEL_FAST  = 'claude-haiku-4-5-20251001'; // photo scan + usage math — much faster
 async function apiFetch(body){
   if(!settings.apiKey) throw new Error('NO_KEY');
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
+  const opts = {
     method:'POST',
     headers:{
       'content-type':'application/json',
@@ -506,7 +521,10 @@ async function apiFetch(body){
       'anthropic-dangerous-direct-browser-access':'true'
     },
     body: JSON.stringify(body)
-  });
+  };
+  // a hung request must not brick the app behind the loader
+  if(typeof AbortSignal !== 'undefined' && AbortSignal.timeout) opts.signal = AbortSignal.timeout(60000);
+  const r = await fetch('https://api.anthropic.com/v1/messages', opts);
   if(!r.ok){
     let msg = 'API error ' + r.status;
     try{ const e = await r.json(); msg += ': ' + (e.error && e.error.message || '').slice(0,140) }catch(_){}
@@ -556,15 +574,18 @@ function foodImgUrl(r){
     `delicious ${r.name}, ${r.description || 'home cooked'}, professional food magazine photography, appetizing, beautifully plated, natural light, high detail`);
   return `https://image.pollinations.ai/prompt/${prompt}?width=640&height=640&nologo=true&enhance=true&seed=${seed}`;
 }
-const recipeImg = r => r.img || foodImgUrl(r);
+const NANO = new Map(); // session cache of Nano Banana heroes — never persisted (localStorage quota)
+const recipeImg = r => NANO.get(r.name) || r.img || foodImgUrl(r);
 // pollinations allows ONE generation at a time per IP — parallel loads got 429'd
 // and looked "half generated". Strict client-side queue: one img loads at a time,
 // failures retry twice with backoff, the visible recipe page jumps the queue.
 const IMGQ = [];
+const IMG_DONE = new Set(); // urls that loaded once — re-renders show them instantly, no re-queue
 let imgBusy = false;
 function scanImgs(priority){
   document.querySelectorAll('img[data-src]:not([data-q])').forEach(el => {
     el.setAttribute('data-q', '1');
+    if(IMG_DONE.has(el.dataset.src)){ el.src = el.dataset.src; return; } // browser cache hit
     priority ? IMGQ.unshift(el) : IMGQ.push(el);
   });
   pumpImgQ();
@@ -572,11 +593,12 @@ function scanImgs(priority){
 function pumpImgQ(){
   if(imgBusy) return;
   let el;
-  while((el = IMGQ.shift())){ if(document.contains(el)) break; }
+  // skip detached nodes AND ones that already got a src (e.g. Nano Banana beat the queue)
+  while((el = IMGQ.shift())){ if(document.contains(el) && !el.src) break; }
   if(!el) return;
   imgBusy = true;
-  const next = () => { imgBusy = false; setTimeout(pumpImgQ, 400); };
-  el.onload = next;
+  const next = () => { el.onload = null; el.onerror = null; imgBusy = false; setTimeout(pumpImgQ, 400); };
+  el.onload = () => { IMG_DONE.add(el.dataset.src); next(); };
   el.onerror = () => {
     const n = +(el.dataset.r || 0);
     el.removeAttribute('src');
@@ -627,19 +649,24 @@ function apiErrorToast(err){
   if(err.message === 'NO_KEY'){ toast('Add your API key in ⚙️ first'); settingsSheet(); }
   else if(/401/.test(err.message)) toast('API key rejected — check it in ⚙️');
   else if(/Failed to fetch/i.test(err.message)) toast('No connection 📡');
+  else if(/timed out|abort/i.test(err.message) || err.name === 'TimeoutError') toast('Took too long — try again ⏳');
   else toast(err.message.slice(0,90));
 }
 
 /* ================= navigation ================= */
 let currentView = 'fridge';
-function nav(v){
+function showView(v){
   currentView = v;
   ['fridge','cook','history'].forEach(x => {
     $('#view-'+x).classList.toggle('on', x === v);
     $('#nav-'+x).classList.toggle('on', x === v);
   });
+}
+function nav(v){
+  showView(v);
+  window.scrollTo(0, 0);
   if(v === 'fridge') renderFridge();
-  if(v === 'cook') renderCookHome();
+  if(v === 'cook'){ quiz ? renderQuiz() : renderCookHome(); } // don't wipe a quiz in progress
   if(v === 'history') renderHistory();
 }
 
@@ -796,7 +823,9 @@ function renderEditSheet(){
 function bumpQty(d){
   const it = fridge.find(f => f.id === editId); if(!it) return;
   it.qty.n = Math.max(1, it.qty.n + d);
-  saveFridge(); renderEditSheet();
+  saveFridge();
+  const el = document.querySelector('#sheet .stepVal');
+  if(el) el.textContent = '×' + it.qty.n; // in place — full re-render flickers
 }
 function setLevel(v){
   const it = fridge.find(f => f.id === editId); if(!it) return;
@@ -874,7 +903,8 @@ function scanReviewSheet(items){
     <p class="hint">Tap to exclude anything wrong, then confirm.</p>
     <div id="scanList"></div>
     <button class="sheetBtn" onclick="confirmScan()">Add to fridge ✅</button>
-  `);
+    <button class="sheetBtn ghost" onclick="closeSheet()" style="margin-top:8px">Discard scan</button>
+  `, () => toast('Finish the scan — add or discard 📸')); // backdrop can't nuke a paid scan
   renderScanList();
 }
 function renderScanList(){
@@ -918,7 +948,7 @@ function renderCookHome(){
       <button class="heroBtn" onclick="startQuiz()">Start craving quiz ✨</button>
     </div>`;
   if(lastRecipes && lastRecipes.recipes && lastRecipes.recipes.length){
-    html += `<div class="sectionT">Last ideas</div>` + recipeCardsHtml(lastRecipes.recipes);
+    html += `<div class="sectionT">Last ideas</div>` + recipeCardsHtml(lastRecipes.recipes, 'home');
   }
   v.innerHTML = html;
   scanImgs();
@@ -1060,19 +1090,20 @@ Return ONLY JSON:
     if(!recipes.length){ toast('Got a weird answer — try again'); return; }
     lastRecipes = { recipes, cravings: cravingStr, serve: serveStr, effort: quiz.effort, at: Date.now() };
     store.set('lastRecipes', lastRecipes);
+    quiz = null; // quiz finished — don't resume it on next Cook tab visit
     renderResults();
   }catch(err){
     loading(false); apiErrorToast(err);
   }
 }
 
-function recipeCardsHtml(recipes){
+function recipeCardsHtml(recipes, from){
   return recipes.map((r, i) => {
     // new fast format has uses/buy arrays; old stored results have full ingredients
     const uses = (r.uses || (r.ingredients || []).filter(g => g.status === 'have').map(g => g.item)).slice(0,4);
     const buys = r.buy || (r.ingredients || []).filter(g => g.status === 'buy').map(g => g.item);
     return `
-    <div class="rCard" style="animation-delay:${i*90}ms" onclick="openRecipe(${i})">
+    <div class="rCard" style="animation-delay:${i*90}ms" onclick="openRecipe(${i},'${from || 'results'}')">
       <div class="rEmoji">${esc(r.emoji || '🍽️')}<img data-src="${esc(recipeImg(r))}" alt=""></div>
       <div class="rBody">
         <div class="rName">${esc(r.name)}</div>
@@ -1138,8 +1169,8 @@ function persistRecipeCaches(){
   saveSaved(); saveCooked();
 }
 
-async function openRecipe(i){
-  detailReturn = 'results';
+async function openRecipe(i, from){
+  detailReturn = from || 'results';
   const r = migrateLevels(lastRecipes.recipes[i]);
   currentLevel = { 'quick (under 20 min)':'easy', 'normal (20-45 min)':'classic', 'a project (45+ min)':'chef' }[lastRecipes.effort] || 'classic';
   if(!r.levels[currentLevel]){
@@ -1171,10 +1202,10 @@ function renderRecipeDetail(r){
   const d = r.levels[currentLevel] || { ingredients: [], steps: [], tips: [] };
   currentRecipe = r;
   const v = $('#view-cook');
-  nav('cook');
+  showView('cook'); // no nav(): that would render cook-home first = visible flash
   const stIcon = { have:'✅', staple:'🧂', buy:'🛒' };
   v.innerHTML = `
-    <button class="backBtn" onclick="${detailReturn === 'history' ? "nav('history')" : (lastRecipes ? 'renderResults()' : 'renderCookHome()')}">← Back</button>
+    <button class="backBtn" onclick="${detailReturn === 'history' ? "nav('history')" : detailReturn === 'home' ? "nav('cook')" : (lastRecipes ? 'renderResults()' : "nav('cook')")}">← Back</button>
     <div class="heroImgWrap">
       <span class="fallbackEm">${esc(r.emoji || '🍽️')}</span>
       <img id="heroImg" data-src="${esc(recipeImg(r))}" alt="">
@@ -1211,13 +1242,12 @@ function renderRecipeDetail(r){
 // swap in a Nano Banana Pro shot when a Google key is set (non-blocking)
 let warned429 = false;
 async function upgradeHeroImg(r){
-  if(!settings.googleKey || r.img) return;
+  if(!settings.googleKey || NANO.has(r.name) || (r.img && r.img.startsWith('data:'))) return;
   try{
     const img = await nanoBanana(r);
-    r.img = img;
-    if(lastRecipes) store.set('lastRecipes', lastRecipes);
+    NANO.set(r.name, img); // session-only: persisting ~100KB data-URLs eats localStorage
     const el = $('#heroImg');
-    if(currentRecipe === r && el) el.src = img;
+    if(currentRecipe === r && el){ el.onload = null; el.onerror = null; el.src = img; }
   }catch(err){
     // free photo already showing — just explain quota errors once
     if(/429/.test(err.message) && !warned429){
@@ -1279,6 +1309,7 @@ Estimate what remains of my fridge items after cooking this once. Return ONLY JS
     usageSheet(updates, r);
   }catch(err){
     loading(false); apiErrorToast(err);
+    usageSheet([], r); // estimate failed (offline?) — cook must still be loggable
   }
 }
 function usageSheet(updates, r){
@@ -1303,7 +1334,7 @@ function usageSheet(updates, r){
     <div id="usageList"></div>
     <button class="sheetBtn" onclick="confirmUsage()">Update fridge ✨</button>
     <button class="sheetBtn ghost" onclick="skipUsage()" style="margin-top:8px">Skip — fridge unchanged</button>
-  `);
+  `, skipUsage); // stray backdrop tap still logs the cook instead of silently losing it
   renderUsageList();
 }
 function renderUsageList(){
@@ -1380,13 +1411,13 @@ function renderHistory(){
   }
   if(cooked.length){
     html += `<div class="sectionT">Cooked before</div>` + cooked.map((c, i) => `
-      <div class="hRow" style="animation-delay:${Math.min(i,8)*60}ms">
+      <div class="hRow" style="animation-delay:${Math.min(i,8)*60}ms" onclick="makeAgain('${c.id}')">
         <span class="hThumb">${esc(c.recipe.emoji || '🍽️')}<img data-src="${esc(recipeImg(c.recipe))}" alt=""></span>
         <div>
           <div class="hName">${esc(c.recipe.name)}</div>
           <div class="hDate">${new Date(c.cookedAt).toLocaleDateString(undefined,{month:'short',day:'numeric'})} · ⏱ ${esc(String(c.recipe.minutes || '?'))} min</div>
         </div>
-        <button class="againBtn" onclick="makeAgain('${c.id}')">Again 🍳</button>
+        <button class="againBtn">Again 🍳</button>
       </div>`).join('');
   }
   v.innerHTML = html;
@@ -1471,14 +1502,37 @@ function clearAll(){
 }
 
 /* ================= sheet plumbing ================= */
-function openSheet(html){
+let sheetDismiss = null; // custom backdrop-tap behavior (protects destructive sheets)
+let vvPin = null;
+function openSheet(html, onDismiss){
+  sheetDismiss = onDismiss || null;
   $('#sheet').innerHTML = '<div class="grabber"></div>' + html;
   $('#sheet').classList.add('on');
   $('#sheetBack').classList.add('on');
+  document.body.style.overflow = 'hidden'; // stop background scrolling behind sheet
+  // iOS keyboard overlays position:fixed — pin the sheet to the visual viewport
+  if(window.visualViewport && !vvPin){
+    vvPin = () => {
+      const s = $('#sheet'), vv = window.visualViewport;
+      if(!s.classList.contains('on')){ s.style.bottom = ''; s.style.maxHeight = ''; return; }
+      s.style.bottom = Math.max(0, window.innerHeight - vv.height - vv.offsetTop) + 'px';
+      s.style.maxHeight = Math.round(vv.height * 0.9) + 'px';
+    };
+    window.visualViewport.addEventListener('resize', vvPin);
+    window.visualViewport.addEventListener('scroll', vvPin);
+  }
+}
+function backdropTap(){
+  if(sheetDismiss){ sheetDismiss(); return; }
+  closeSheet();
 }
 function closeSheet(){
-  $('#sheet').classList.remove('on');
+  sheetDismiss = null;
+  const s = $('#sheet');
+  s.classList.remove('on');
+  s.style.bottom = ''; s.style.maxHeight = '';
   $('#sheetBack').classList.remove('on');
+  document.body.style.overflow = '';
 }
 
 /* ================= self test (?test=1) ================= */
