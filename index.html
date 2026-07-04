@@ -485,8 +485,11 @@ function addToFridge(name, qty, emoji, category){
 /* ================= claude api ================= */
 const MODEL_SMART = 'claude-sonnet-5';        // recipe ideas + full recipes
 const MODEL_FAST  = 'claude-haiku-4-5-20251001'; // photo scan + usage math — much faster
-async function claude(content, system, maxTokens, model){
+async function claude(content, system, maxTokens, model, prefill){
   if(!settings.apiKey) throw new Error('NO_KEY');
+  const messages = [{ role:'user', content }];
+  // prefill forces the reply to start mid-JSON — no preamble possible
+  if(prefill) messages.push({ role:'assistant', content: prefill });
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
     headers:{
@@ -499,7 +502,7 @@ async function claude(content, system, maxTokens, model){
       model: model || MODEL_SMART,
       max_tokens: maxTokens || 3000,
       system: system || 'You are a helpful cooking assistant. Respond with ONLY valid JSON. No markdown fences, no commentary.',
-      messages:[{ role:'user', content }]
+      messages
     })
   });
   if(!r.ok){
@@ -508,7 +511,7 @@ async function claude(content, system, maxTokens, model){
     throw new Error(msg);
   }
   const d = await r.json();
-  return (d.content || []).map(b => b.text || '').join('');
+  return (prefill || '') + (d.content || []).map(b => b.text || '').join('');
 }
 
 function parseJSONLoose(t){
@@ -520,11 +523,11 @@ function parseJSONLoose(t){
 
 async function askJSON(content, system, maxTokens, model){
   try{
-    return parseJSONLoose(await claude(content, system, maxTokens, model));
+    return parseJSONLoose(await claude(content, system, maxTokens, model, '{'));
   }catch(err){
     if(err.message === 'NO_KEY' || /^API error/.test(err.message)) throw err;
-    // one retry on malformed JSON
-    return parseJSONLoose(await claude(content, system, maxTokens, model));
+    // one retry on malformed/truncated JSON, with more room
+    return parseJSONLoose(await claude(content, system, (maxTokens || 3000) + 1000, model, '{'));
   }
 }
 
@@ -541,7 +544,7 @@ const recipeImg = (r, size) => r.img || foodImgUrl(r, size);
 // optional: Nano Banana Pro hero image via user's Google AI key
 async function nanoBanana(r){
   const res = await fetch(
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=' + settings.googleKey,
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent?key=' + settings.googleKey,
     { method:'POST', headers:{ 'content-type':'application/json' },
       body: JSON.stringify({
         contents:[{ parts:[{ text:
@@ -873,6 +876,19 @@ function renderCookHome(){
 }
 
 const QUIZ_STEPS = [
+  { key:'meal', q:'What meal is this?', multi:false,
+    opts:[
+      ['🥞','breakfast','pancakes · eggs · oats'],
+      ['🥪','lunch','sandwiches · bowls · wraps'],
+      ['🍝','dinner','mains · pasta · roasts'],
+      ['🍿','snack','bites · dips · toasts'],
+      ['🍰','dessert','cakes · cookies · pudding']
+    ],
+    extra:{ key:'serve', label:'Cooking for?', opts:[
+      ['🙋','just me (1 serving)'],
+      ['👥','two people'],
+      ['👨‍👩‍👧','the family (4+)']
+    ] } },
   { key:'taste',   q:'What taste are you craving?', multi:true,
     opts:[
       ['🍬','sweet','pancakes · crumble · french toast'],
@@ -891,6 +907,15 @@ const QUIZ_STEPS = [
       ['🍜','soupy','ramen · chowder · broth'],
       ['🥗','fresh','salad · salsa · spring rolls']
     ] },
+  { key:'cuisine', q:'Any cuisine calling you?', multi:true,
+    opts:[
+      ['🍝','italian','pasta · risotto · frittata'],
+      ['🥢','asian','stir-fry · ramen · fried rice'],
+      ['🌮','mexican','tacos · quesadilla · salsa'],
+      ['🥙','mediterranean','salads · grills · mezze'],
+      ['🍛','indian','curry · dal · masala'],
+      ['🍔','comfort food','burgers · mac & cheese · bakes']
+    ] },
   { key:'effort',  q:'How much effort today?', multi:false,
     opts:[
       ['⚡','quick (under 20 min)','omelette · quesadilla · stir-fry'],
@@ -906,7 +931,7 @@ const QUIZ_STEPS = [
 function startQuiz(){
   if(!settings.apiKey){ toast('Add your API key in ⚙️ first'); settingsSheet(); return; }
   if(fridge.length < 2){ toast('Add a few fridge items first 🧊'); nav('fridge'); return; }
-  quiz = { step:0, taste:new Set(), texture:new Set(), effort:null, vibe:null };
+  quiz = { step:0, meal:null, serve:null, taste:new Set(), texture:new Set(), cuisine:new Set(), effort:null, vibe:null };
   renderQuiz();
 }
 function renderQuiz(){
@@ -954,11 +979,15 @@ function quizNext(){
 
 async function findRecipes(){
   const cravings = [];
+  if(quiz.meal)         cravings.push('meal: ' + quiz.meal);
+  if(quiz.serve)        cravings.push('cooking for: ' + quiz.serve);
   if(quiz.taste.size)   cravings.push('taste: ' + [...quiz.taste].join(', '));
   if(quiz.texture.size) cravings.push('texture: ' + [...quiz.texture].join(', '));
+  if(quiz.cuisine.size) cravings.push('cuisine: ' + [...quiz.cuisine].join(', '));
   if(quiz.effort)       cravings.push('effort: ' + quiz.effort);
   if(quiz.vibe)         cravings.push('vibe: ' + quiz.vibe);
   const cravingStr = cravings.length ? cravings.join('; ') : 'surprise me — anything tasty';
+  const serveStr = quiz.serve || '1-2 servings';
   const fridgeStr = fridge.map(f => `- ${f.name} (${qtyLabel(f.qty)})`).join('\n');
   const recent = cooked.slice(0,5).map(c => c.recipe.name).join(', ');
   loading(true, 'recipes');
@@ -976,11 +1005,11 @@ Suggest exactly 3 different realistic dishes I can cook right now, primarily fro
 
 Return ONLY JSON:
 {"recipes":[{"name":"...","emoji":"one emoji","minutes":25,"description":"max 80 chars, appetizing","uses":["fridge items it uses"],"buy":["items to buy, max 2, often empty"]}]}`,
-      'You are a creative but practical home-cooking chef. Respond with ONLY valid JSON. No markdown, no commentary.', 800);
+      'You are a creative but practical home-cooking chef. Respond with ONLY valid JSON. No markdown, no commentary.', 1000);
     loading(false);
     const recipes = (res.recipes || []).filter(r => r && r.name).slice(0,3);
     if(!recipes.length){ toast('Got a weird answer — try again'); return; }
-    lastRecipes = { recipes, cravings: cravingStr, at: Date.now() };
+    lastRecipes = { recipes, cravings: cravingStr, serve: serveStr, at: Date.now() };
     store.set('lastRecipes', lastRecipes);
     renderResults();
   }catch(err){
@@ -1032,10 +1061,10 @@ My fridge: ${fridge.map(f => f.name + ' (' + qtyLabel(f.qty) + ')').join(', ')}
 Staples I have: ${settings.staples.join(', ')}
 ${lastRecipes.cravings ? 'It was suggested for cravings: ' + lastRecipes.cravings : ''}
 
-Scale to what I have, 1-2 servings. Max 8 concise steps.
+Scale to what I have, for ${lastRecipes.serve || '1-2 servings'}. Max 8 concise steps.
 Return ONLY JSON:
 {"ingredients":[{"item":"...","amount":"e.g. 2, 1 cup, a splash","status":"have|staple|buy"}],"steps":["..."]}`,
-        'You are a practical home-cooking chef. Respond with ONLY valid JSON. No markdown, no commentary.', 1200);
+        'You are a practical home-cooking chef. Respond with ONLY valid JSON. No markdown, no commentary.', 1600);
       if(!Array.isArray(res.ingredients) || !Array.isArray(res.steps)) throw new Error('Got a weird answer — try again');
       r.ingredients = res.ingredients; r.steps = res.steps;
       store.set('lastRecipes', lastRecipes);
@@ -1079,6 +1108,7 @@ function renderRecipeDetail(r){
   upgradeHeroImg(r);
 }
 // swap in a Nano Banana Pro shot when a Google key is set (non-blocking)
+let warned429 = false;
 async function upgradeHeroImg(r){
   if(!settings.googleKey || r.img) return;
   try{
@@ -1087,7 +1117,13 @@ async function upgradeHeroImg(r){
     if(lastRecipes) store.set('lastRecipes', lastRecipes);
     const el = $('#heroImg');
     if(currentRecipe === r && el) el.src = img;
-  }catch(err){ /* pollinations image already showing — silent */ }
+  }catch(err){
+    // free photo already showing — just explain quota errors once
+    if(/429/.test(err.message) && !warned429){
+      warned429 = true;
+      toast('Google key has no image quota (needs billing) — using free photos');
+    }
+  }
 }
 
 /* ---- I made it → usage estimate ---- */
