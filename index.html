@@ -336,7 +336,7 @@ textarea.field{resize:vertical;min-height:80px}
 
 <script>
 'use strict';
-const APP_VERSION = 11;
+const APP_VERSION = 12;
 /* ================= data ================= */
 const store = {
   get(k, d){ try{ const v = JSON.parse(localStorage.getItem('cooksy.'+k)); return v === null || v === undefined ? d : v }catch(e){ return d } },
@@ -448,6 +448,7 @@ function confetti(){
 const LOAD_MSGS = {
   recipes: ['Chopping ideas…','Tasting combos…','Raiding your fridge…','Whisking it together…'],
   detail: ['Writing the recipe…','Measuring things out…','Plating up the steps…'],
+  pantry: ['Peeking in the pantry…','Anything hiding back there?…'],
   scan: ['Peeking in your fridge…','Spotting the goods…','Counting apples…'],
   usage: ['Doing the dishes…','Checking what’s left…','Wiping the counter…']
 };
@@ -575,7 +576,34 @@ function foodImgUrl(r){
   return `https://image.pollinations.ai/prompt/${prompt}?width=640&height=640&nologo=true&enhance=true&seed=${seed}`;
 }
 const NANO = new Map(); // session cache of Nano Banana heroes — never persisted (localStorage quota)
-const recipeImg = r => NANO.get(r.name) || r.img || foodImgUrl(r);
+// real photos beat slow AI generation: Openverse search is keyless, CORS-open, <1s
+const PHOTO = new Map(); // name -> thumbnail url ('' = searched, nothing found)
+async function findPhoto(r){
+  if(typeof r.photo === 'string') return r.photo || null;
+  if(PHOTO.has(r.name)){ r.photo = PHOTO.get(r.name); return r.photo || null; }
+  const words = String(r.name).toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(Boolean);
+  const queries = [...new Set([r.img_query, r.name, words.slice(-2).join(' ')].filter(Boolean))];
+  let found = '';
+  for(const q of queries){
+    try{
+      const res = await fetch('https://api.openverse.org/v1/images/?q=' + encodeURIComponent(q + ' food') + '&page_size=5');
+      if(!res.ok) break;
+      const d = await res.json();
+      const hit = (d.results || []).find(x => x.thumbnail);
+      if(hit){ found = hit.thumbnail; break; }
+    }catch(e){ break; }
+  }
+  r.photo = found;
+  PHOTO.set(r.name, found);
+  return found || null;
+}
+// one img builder everywhere: instant real photo when we have one, AI-generation queue as fallback
+function imgTag(r, extra){
+  const direct = NANO.get(r.name) || r.photo || (r.img && r.img.startsWith('data:') ? r.img : null);
+  return direct
+    ? `<img ${extra || ''} src="${esc(direct)}" alt="" onerror="this.remove()">`
+    : `<img ${extra || ''} data-src="${esc(foodImgUrl(r))}" alt="">`;
+}
 // pollinations allows ONE generation at a time per IP — parallel loads got 429'd
 // and looked "half generated". Strict client-side queue: one img loads at a time,
 // failures retry twice with backoff, the visible recipe page jumps the queue.
@@ -1068,7 +1096,7 @@ function quizNext(){
   findRecipes();
 }
 
-async function findRecipes(){
+function buildCravings(){
   const cravings = [];
   if(quiz.meal)         cravings.push('meal: ' + quiz.meal);
   if(quiz.serve)        cravings.push('cooking for: ' + quiz.serve);
@@ -1077,9 +1105,80 @@ async function findRecipes(){
   if(quiz.cuisine.size) cravings.push('cuisine: ' + [...quiz.cuisine].join(', '));
   if(quiz.effort)       cravings.push('effort: ' + quiz.effort);
   if(quiz.vibe)         cravings.push('vibe: ' + quiz.vibe);
-  const cravingStr = cravings.length ? cravings.join('; ') : 'surprise me — anything tasty';
-  const serveStr = quiz.serve || '1-2 servings';
-  const healthStr = quiz.health.size ? [...quiz.health].join(', ') : '';
+  return {
+    cravingStr: cravings.length ? cravings.join('; ') : 'surprise me — anything tasty',
+    serveStr: quiz.serve || '1-2 servings',
+    healthStr: quiz.health.size ? [...quiz.health].join(', ') : '',
+    effort: quiz.effort
+  };
+}
+
+/* ---- pantry check: ask about common items the user likely has but never logged ---- */
+let notHave = store.get('notHave', []); // "nope" answers — never ask again, never assume
+let pantryQs = [], pantryCtx = null;
+async function checkPantry(ctx){
+  const res = await askJSON(
+`My fridge: ${fridge.map(f => f.name).join(', ') || '(empty)'}
+Staples I always have: ${settings.staples.join(', ')}
+My cravings: ${ctx.cravingStr}
+${notHave.length ? 'I already said I do NOT have: ' + notHave.join(', ') : ''}
+
+List up to 4 COMMON household ingredients I plausibly have at home but have not logged, that would meaningfully expand my recipe options for these cravings (e.g. condensed milk unlocks 2-ingredient ice cream). Only everyday items people forget to log. Never list anything from my fridge, staples, or not-have lists. If nothing is worth asking, return an empty list.
+
+Return ONLY JSON:
+{"questions":[{"item":"condensed milk","emoji":"🥫","why":"unlocks quick ice cream"}]}`,
+    'You help check a home pantry. Respond with ONLY valid JSON.', 500, MODEL_FAST);
+  return (res.questions || []).filter(q => q && q.item).slice(0, 4);
+}
+function pantryCheckSheet(qs, ctx){
+  pantryQs = qs.map(q => ({ ...q, have: false }));
+  pantryCtx = ctx;
+  openSheet(`
+    <div class="sheetT">🧐 Quick check</div>
+    <p class="hint">These would unlock better recipes — got any hiding in the pantry? Tap to answer.</p>
+    <div id="pantryList"></div>
+    <button class="sheetBtn" onclick="continuePantry()">Find recipes 🍳</button>
+  `, continuePantry); // backdrop tap = continue with current answers, never dead-ends
+  renderPantryList();
+}
+function renderPantryList(){
+  const box = $('#pantryList'); if(!box) return;
+  box.innerHTML = pantryQs.map((q, i) => `
+    <button class="useRow" style="width:100%;text-align:left" onclick="togglePantry(${i})">
+      <span>${esc(q.emoji || '🥫')}</span>
+      <span>${esc(cap(q.item))}<div class="hint" style="margin:2px 0 0">${esc(q.why || '')}</div></span>
+      <span class="after ${q.have ? '' : 'gone'}" style="margin-left:auto">${q.have ? 'Got it ✓' : 'Nope'}</span>
+    </button>`).join('');
+}
+function togglePantry(i){ pantryQs[i].have = !pantryQs[i].have; renderPantryList(); }
+function continuePantry(){
+  closeSheet();
+  for(const q of pantryQs){
+    const nm = String(q.item).toLowerCase().trim();
+    if(q.have){
+      addToFridge(nm, isPourable(nm) ? { type:'level', v:'full' } : { type:'count', n:1 });
+      notHave = notHave.filter(x => x !== nm);
+    } else if(!notHave.includes(nm)){
+      notHave.push(nm);
+    }
+  }
+  notHave = notHave.slice(-30);
+  store.set('notHave', notHave);
+  runRecipeSearch(pantryCtx);
+}
+
+async function findRecipes(){
+  const ctx = buildCravings();
+  let qs = [];
+  loading(true, 'pantry');
+  try{ qs = await checkPantry(ctx); }catch(e){ /* non-fatal — go straight to recipes */ }
+  loading(false);
+  if(qs.length){ pantryCheckSheet(qs, ctx); return; }
+  runRecipeSearch(ctx);
+}
+
+async function runRecipeSearch(ctx){
+  const { cravingStr, serveStr, healthStr } = ctx;
   const fridgeStr = fridge.map(f => `- ${f.name} (${qtyLabel(f.qty)})`).join('\n');
   const recent = cooked.slice(0,5).map(c => c.recipe.name).join(', ');
   loading(true, 'recipes');
@@ -1092,17 +1191,20 @@ ${fridgeStr}
 Pantry staples I always have (assume available): ${settings.staples.join(', ')}
 My cravings right now: ${cravingStr}
 ${healthStr ? `HEALTH REQUIREMENTS (hard constraints, never violate): ${healthStr}. "sugar-free" means ZERO added sugar — no sugar, honey, maple syrup, or other sweeteners; use fruit if sweetness is needed. "oil-free" means no oil or butter — use water sauté, baking, or steaming.` : ''}
+${notHave.length ? 'I definitely do NOT have (flag as "buy" if needed): ' + notHave.join(', ') : ''}
 ${recent ? 'Recently cooked (do not repeat these): ' + recent : ''}
 
 Suggest exactly 3 different realistic dishes I can cook right now, primarily from my fridge items plus staples. Respect my quantities. Each dish may need AT MOST 2 ingredients I would have to buy. Match the cravings. Be concise.
 
 Return ONLY JSON:
-{"recipes":[{"name":"...","emoji":"one emoji","minutes":25,"description":"max 80 chars, appetizing","uses":["fridge items it uses"],"buy":["items to buy, max 2, often empty"]}]}`,
+{"recipes":[{"name":"...","emoji":"one emoji","minutes":25,"description":"max 80 chars, appetizing","img_query":"2-3 plain words for a stock photo of this dish, e.g. 'pasta salad'","uses":["fridge items it uses"],"buy":["items to buy, max 2, often empty"]}]}`,
       'You are a creative but practical home-cooking chef. Respond with ONLY valid JSON. No markdown, no commentary.', 1000);
     loading(false);
     const recipes = (res.recipes || []).filter(r => r && r.name).slice(0,3);
     if(!recipes.length){ toast('Got a weird answer — try again'); return; }
-    lastRecipes = { recipes, cravings: cravingStr, serve: serveStr, effort: quiz.effort, health: healthStr, at: Date.now() };
+    // grab real photos BEFORE showing cards (parallel, <1s) — pictures appear instantly
+    await Promise.all(recipes.map(r => findPhoto(r).catch(() => null)));
+    lastRecipes = { recipes, cravings: cravingStr, serve: serveStr, effort: ctx.effort, health: healthStr, at: Date.now() };
     store.set('lastRecipes', lastRecipes);
     quiz = null; // quiz finished — don't resume it on next Cook tab visit
     renderResults();
@@ -1118,7 +1220,7 @@ function recipeCardsHtml(recipes, from){
     const buys = r.buy || (r.ingredients || []).filter(g => g.status === 'buy').map(g => g.item);
     return `
     <div class="rCard" style="animation-delay:${i*90}ms" onclick="openRecipe(${i},'${from || 'results'}')">
-      <div class="rEmoji">${esc(r.emoji || '🍽️')}<img data-src="${esc(recipeImg(r))}" alt=""></div>
+      <div class="rEmoji">${esc(r.emoji || '🍽️')}${imgTag(r)}</div>
       <div class="rBody">
         <div class="rName">${esc(r.name)}</div>
         <p class="rDesc">${esc(r.description || '')}</p>
@@ -1223,7 +1325,7 @@ function renderRecipeDetail(r){
     <button class="backBtn" onclick="${detailReturn === 'history' ? "nav('history')" : detailReturn === 'home' ? "nav('cook')" : (lastRecipes ? 'renderResults()' : "nav('cook')")}">← Back</button>
     <div class="heroImgWrap">
       <span class="fallbackEm">${esc(r.emoji || '🍽️')}</span>
-      <img id="heroImg" data-src="${esc(recipeImg(r))}" alt="">
+      ${imgTag(r, 'id="heroImg"')}
     </div>
     <div class="detailHero" style="margin-top:0">
       <h2>${esc(r.name)}</h2>
@@ -1413,7 +1515,7 @@ function renderHistory(){
   if(saved.length){
     html += `<div class="sectionT">♥ Saved</div>` + saved.map((s, i) => `
       <div class="hRow" style="animation-delay:${Math.min(i,8)*60}ms" onclick="openSaved('${s.id}')">
-        <span class="hThumb">${esc(s.recipe.emoji || '🍽️')}<img data-src="${esc(recipeImg(s.recipe))}" alt=""></span>
+        <span class="hThumb">${esc(s.recipe.emoji || '🍽️')}${imgTag(s.recipe)}</span>
         <div>
           <div class="hName">${esc(s.recipe.name)}</div>
           <div class="hDate">⏱ ${esc(String(s.recipe.minutes || '?'))} min</div>
@@ -1427,7 +1529,7 @@ function renderHistory(){
   if(cooked.length){
     html += `<div class="sectionT">Cooked before</div>` + cooked.map((c, i) => `
       <div class="hRow" style="animation-delay:${Math.min(i,8)*60}ms" onclick="makeAgain('${c.id}')">
-        <span class="hThumb">${esc(c.recipe.emoji || '🍽️')}<img data-src="${esc(recipeImg(c.recipe))}" alt=""></span>
+        <span class="hThumb">${esc(c.recipe.emoji || '🍽️')}${imgTag(c.recipe)}</span>
         <div>
           <div class="hName">${esc(c.recipe.name)}</div>
           <div class="hDate">${new Date(c.cookedAt).toLocaleDateString(undefined,{month:'short',day:'numeric'})} · ⏱ ${esc(String(c.recipe.minutes || '?'))} min</div>
@@ -1437,6 +1539,19 @@ function renderHistory(){
   }
   v.innerHTML = html;
   scanImgs();
+  backfillPhotos();
+}
+// older saved/cooked entries predate real photos — fetch once, persist, re-render
+let backfilling = false;
+async function backfillPhotos(){
+  if(backfilling) return;
+  const pending = [...saved, ...cooked].map(e => e.recipe).filter(r => r && r.photo === undefined).slice(0, 15);
+  if(!pending.length) return;
+  backfilling = true;
+  await Promise.all(pending.map(r => findPhoto(r).catch(() => null)));
+  backfilling = false;
+  saveSaved(); saveCooked();
+  if(currentView === 'history') renderHistory();
 }
 function makeAgain(id){
   const c = cooked.find(x => x.id === id);
@@ -1559,8 +1674,9 @@ function runSelfTest(){
   A(qtyLabel({type:'level',v:'half'}) === 'Half', 'qty level label');
   A(qtyLabel({type:'text',label:'juice of 2'}) === 'juice of 2', 'qty text label');
   A(isPourable('lemon juice') && isPourable('Milk') && !isPourable('apple'), 'pourable detect');
-  A(foodImgUrl({name:'corn lime pasta salad'}, 256) === foodImgUrl({name:'corn lime pasta salad'}, 256), 'img url deterministic');
-  A(recipeImg({name:'x', img:'data:image/jpeg;base64,abc'}, 256) === 'data:image/jpeg;base64,abc', 'stored img wins');
+  A(foodImgUrl({name:'corn lime pasta salad'}) === foodImgUrl({name:'corn lime pasta salad'}), 'img url deterministic');
+  A(imgTag({name:'x', photo:'https://p/x.jpg'}).includes('src="https://p/x.jpg"'), 'real photo wins');
+  A(imgTag({name:'y'}).includes('data-src='), 'fallback queues AI image');
   A(normStep('mix it').text === 'mix it' && normStep({text:'x', tip:'y'}).tip === 'y', 'step normalize');
   const mig = migrateLevels({ name:'m', minutes:5, ingredients:[{item:'a'}], steps:['s'] });
   A(mig.levels.classic.steps[0] === 's' && mig.levels.classic.ingredients[0].item === 'a', 'legacy migrate');
