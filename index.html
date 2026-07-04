@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#FF7A45">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Cooksy">
+<title>Cooksy</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
+<style>
+:root{
+  --bg:#FFF7EE; --card:#FFFFFF; --ink:#33261D; --sub:#A08D80;
+  --acc:#FF7A45; --acc2:#FFB84D; --green:#3FBF6F; --pink:#FF5D8F;
+  --line:#F4E8DC; --r:20px;
+  --shadow:0 6px 24px rgba(255,122,69,.10);
+  --grad:linear-gradient(135deg,#FF7A45,#FF5D8F);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  font-family:ui-rounded,'SF Pro Rounded','Segoe UI Variable Display','Segoe UI',system-ui,sans-serif;
+  background:var(--bg); color:var(--ink); min-height:100dvh;
+  padding-bottom:calc(92px + env(safe-area-inset-bottom));
+}
+button{font-family:inherit;color:inherit;border:none;background:none;cursor:pointer}
+input,textarea{font-family:inherit;font-size:16px}
+
+/* ---------- header ---------- */
+header{
+  position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;
+  padding:14px 18px calc(10px);
+  background:rgba(255,247,238,.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+}
+.logo{font-size:22px;font-weight:800;letter-spacing:-.5px;display:flex;align-items:center;gap:8px}
+.logo .pan{display:inline-block;font-size:24px}
+.gear{font-size:22px;padding:6px;border-radius:12px;transition:transform .3s}
+.gear:active{transform:rotate(90deg)}
+
+/* ---------- views ---------- */
+main{padding:4px 18px 0;max-width:560px;margin:0 auto}
+.view{display:none}
+.view.on{display:block;animation:fadeUp .3s ease both}
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes pop{0%{transform:scale(.6)}60%{transform:scale(1.1)}100%{transform:scale(1)}}
+@keyframes bounceY{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:none}}
+@keyframes fall{to{transform:translateY(110vh) rotate(560deg)}}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+
+h1{font-size:26px;font-weight:800;margin:10px 0 4px;letter-spacing:-.5px}
+.sub{color:var(--sub);font-size:14px;margin:0 0 16px}
+
+/* ---------- fridge ---------- */
+.actionRow{display:flex;gap:10px;margin:6px 0 18px}
+.bigBtn{
+  flex:1;padding:14px 10px;border-radius:18px;font-size:15px;font-weight:700;
+  background:var(--card);box-shadow:var(--shadow);transition:transform .15s;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+}
+.bigBtn:active{transform:scale(.96)}
+.bigBtn.primary{background:var(--grad);color:#fff}
+.catHead{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800;
+  color:var(--sub);text-transform:uppercase;letter-spacing:1px;margin:18px 2px 10px}
+.chipGrid{display:flex;flex-wrap:wrap;gap:10px}
+.itemChip{
+  position:relative;display:flex;align-items:center;gap:8px;padding:10px 14px;
+  background:var(--card);border-radius:16px;box-shadow:var(--shadow);
+  font-size:15px;font-weight:600;animation:pop .35s ease both;transition:transform .15s;
+}
+.itemChip:active{transform:scale(.94)}
+.itemChip .em{font-size:20px}
+.qtyBadge{
+  font-size:12px;font-weight:800;color:#fff;background:var(--acc2);
+  padding:2px 8px;border-radius:99px;
+}
+.qtyBadge.low{background:var(--pink)}
+.staleDot{
+  position:absolute;top:-3px;right:-3px;width:12px;height:12px;border-radius:50%;
+  background:var(--acc2);border:2px solid var(--bg);
+}
+.empty{
+  text-align:center;padding:48px 20px;color:var(--sub);
+}
+.empty .big{font-size:56px;display:block;margin-bottom:12px;animation:bounceY 2.4s ease-in-out infinite}
+
+/* ---------- cook ---------- */
+.hero{
+  background:var(--grad);border-radius:26px;padding:26px 22px;color:#fff;
+  box-shadow:0 12px 32px rgba(255,93,143,.25);margin:8px 0 20px;
+}
+.hero h2{margin:0 0 6px;font-size:24px;font-weight:800;letter-spacing:-.5px}
+.hero p{margin:0 0 18px;opacity:.9;font-size:14px}
+.heroBtn{
+  width:100%;padding:16px;border-radius:18px;background:#fff;color:var(--acc);
+  font-size:17px;font-weight:800;transition:transform .15s;
+}
+.heroBtn:active{transform:scale(.97)}
+.banner{
+  background:#FFF1E6;border:1.5px dashed var(--acc2);border-radius:18px;
+  padding:14px 16px;font-size:14px;margin:8px 0 16px;line-height:1.5;
+}
+.banner b{color:var(--acc)}
+
+/* quiz */
+.quizDots{display:flex;gap:6px;justify-content:center;margin:8px 0 20px}
+.quizDots i{width:8px;height:8px;border-radius:50%;background:var(--line);transition:all .3s}
+.quizDots i.on{background:var(--acc);width:22px;border-radius:99px}
+.quizQ{font-size:24px;font-weight:800;text-align:center;margin:6px 0 22px;letter-spacing:-.5px}
+.quizChips{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-bottom:26px}
+.qChip{
+  padding:14px 20px;border-radius:99px;background:var(--card);box-shadow:var(--shadow);
+  font-size:16px;font-weight:700;transition:transform .15s;
+}
+.qChip:active{transform:scale(.92)}
+.qChip.sel{background:var(--grad);color:#fff;animation:pop .3s ease}
+.quizNav{display:flex;gap:10px;margin-top:8px}
+.quizNav .bigBtn{padding:16px}
+.quizLabel{font-size:13px;font-weight:800;color:var(--sub);text-transform:uppercase;
+  letter-spacing:1px;text-align:center;margin:20px 0 12px}
+
+/* recipe cards */
+.rCard{
+  display:flex;gap:14px;background:var(--card);border-radius:22px;padding:16px;
+  box-shadow:var(--shadow);margin-bottom:14px;animation:fadeUp .4s ease both;
+  transition:transform .15s;
+}
+.rCard:active{transform:scale(.97)}
+.rEmoji{
+  flex:none;width:58px;height:58px;border-radius:18px;background:#FFF1E6;
+  display:flex;align-items:center;justify-content:center;font-size:30px;
+}
+.rBody{flex:1;min-width:0}
+.rName{font-size:17px;font-weight:800;margin:2px 0 3px;letter-spacing:-.3px}
+.rDesc{font-size:13px;color:var(--sub);margin:0 0 8px;line-height:1.4}
+.rMeta{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:99px}
+.tag.time{background:#FFF1E6;color:var(--acc)}
+.tag.use{background:#E9F9EF;color:#2A9D57}
+.tag.buy{background:#FFE9F0;color:var(--pink)}
+
+/* recipe detail */
+.backBtn{font-size:15px;font-weight:700;color:var(--acc);padding:8px 0;display:inline-flex;align-items:center;gap:6px}
+.detailHero{text-align:center;margin:4px 0 18px}
+.detailHero .em{font-size:64px;display:block;animation:bounceY 2.8s ease-in-out infinite}
+.detailHero h2{font-size:24px;font-weight:800;margin:10px 0 6px;letter-spacing:-.5px}
+.ingList{background:var(--card);border-radius:20px;box-shadow:var(--shadow);padding:6px 16px;margin:14px 0}
+.ingRow{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1.5px solid var(--line);font-size:15px}
+.ingRow:last-child{border-bottom:none}
+.ingRow .st{flex:none;font-size:17px}
+.ingRow .amt{margin-left:auto;color:var(--sub);font-size:13.5px;font-weight:600;text-align:right}
+.ingRow.buy .nm{color:var(--pink);font-weight:700}
+.stepRow{display:flex;gap:12px;margin:0 0 16px;font-size:15px;line-height:1.55}
+.stepNum{
+  flex:none;width:28px;height:28px;border-radius:50%;background:var(--grad);color:#fff;
+  font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;margin-top:1px;
+}
+.madeBtn{
+  position:sticky;bottom:calc(96px + env(safe-area-inset-bottom));width:100%;
+  padding:17px;border-radius:20px;background:var(--grad);color:#fff;
+  font-size:17px;font-weight:800;box-shadow:0 10px 28px rgba(255,93,143,.35);
+  transition:transform .15s;margin:20px 0 10px;
+}
+.madeBtn:active{transform:scale(.97)}
+.sectionT{font-size:16px;font-weight:800;margin:20px 2px 10px}
+
+/* ---------- history ---------- */
+.hRow{
+  display:flex;align-items:center;gap:12px;background:var(--card);border-radius:18px;
+  padding:12px 14px;box-shadow:var(--shadow);margin-bottom:10px;animation:fadeUp .3s ease both;
+}
+.hRow .em{font-size:26px}
+.hRow .hName{font-weight:700;font-size:15px}
+.hRow .hDate{font-size:12px;color:var(--sub)}
+.againBtn{
+  margin-left:auto;flex:none;font-size:13px;font-weight:800;color:var(--acc);
+  background:#FFF1E6;padding:8px 13px;border-radius:99px;transition:transform .15s;
+}
+.againBtn:active{transform:scale(.92)}
+
+/* ---------- bottom nav ---------- */
+nav{
+  position:fixed;left:0;right:0;bottom:0;z-index:30;
+  display:flex;justify-content:center;padding:10px 18px calc(12px + env(safe-area-inset-bottom));
+  background:rgba(255,247,238,.9);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+}
+.navInner{display:flex;gap:6px;background:var(--card);border-radius:24px;padding:6px;box-shadow:var(--shadow);width:100%;max-width:400px}
+.navBtn{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:9px 4px;border-radius:18px;font-size:11.5px;font-weight:700;color:var(--sub);
+  transition:all .2s;
+}
+.navBtn .ic{font-size:20px;transition:transform .2s}
+.navBtn.on{background:var(--grad);color:#fff}
+.navBtn.on .ic{transform:scale(1.12)}
+
+/* ---------- sheet ---------- */
+#sheetBack{
+  position:fixed;inset:0;z-index:40;background:rgba(51,38,29,.35);
+  opacity:0;pointer-events:none;transition:opacity .25s;
+}
+#sheetBack.on{opacity:1;pointer-events:auto}
+#sheet{
+  position:fixed;left:0;right:0;bottom:0;z-index:41;background:var(--card);
+  border-radius:26px 26px 0 0;padding:10px 20px calc(20px + env(safe-area-inset-bottom));
+  max-height:82dvh;overflow-y:auto;transform:translateY(105%);transition:transform .32s cubic-bezier(.3,1.1,.4,1);
+  max-width:560px;margin:0 auto;
+}
+#sheet.on{transform:none}
+.grabber{width:40px;height:5px;border-radius:99px;background:var(--line);margin:4px auto 14px}
+.sheetT{font-size:19px;font-weight:800;margin:0 0 14px;letter-spacing:-.3px}
+.field{width:100%;padding:13px 15px;border:2px solid var(--line);border-radius:15px;
+  background:var(--bg);outline:none;margin-bottom:10px}
+.field:focus{border-color:var(--acc2)}
+textarea.field{resize:vertical;min-height:80px}
+.suggest{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 14px}
+.sgChip{padding:8px 13px;border-radius:99px;background:var(--bg);font-size:14px;font-weight:600;
+  border:1.5px solid var(--line);transition:transform .12s}
+.sgChip:active{transform:scale(.92)}
+.qtyRow{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:12px}
+.qtyOpt{flex:none;padding:9px 15px;border-radius:99px;background:var(--bg);border:1.5px solid var(--line);
+  font-size:14px;font-weight:700}
+.qtyOpt.sel{background:var(--grad);color:#fff;border-color:transparent}
+.sheetBtn{width:100%;padding:15px;border-radius:16px;background:var(--grad);color:#fff;
+  font-size:16px;font-weight:800;margin-top:4px;transition:transform .15s}
+.sheetBtn:active{transform:scale(.97)}
+.sheetBtn.ghost{background:var(--bg);color:var(--ink);border:1.5px solid var(--line)}
+.sheetBtn.danger{background:#FFE9F0;color:var(--pink)}
+.stepper{display:flex;align-items:center;justify-content:center;gap:22px;margin:10px 0 16px}
+.stepBtn{width:52px;height:52px;border-radius:18px;background:var(--bg);border:1.5px solid var(--line);
+  font-size:24px;font-weight:800;transition:transform .12s}
+.stepBtn:active{transform:scale(.9)}
+.stepVal{font-size:30px;font-weight:800;min-width:70px;text-align:center}
+.segRow{display:flex;gap:8px;margin:6px 0 16px}
+.seg{flex:1;padding:12px;border-radius:15px;background:var(--bg);border:1.5px solid var(--line);
+  font-size:14px;font-weight:700;text-align:center}
+.seg.sel{background:var(--grad);color:#fff;border-color:transparent}
+.linkBtn{display:block;text-align:center;color:var(--acc);font-weight:700;font-size:14px;padding:10px;width:100%}
+.hint{font-size:12.5px;color:var(--sub);line-height:1.5;margin:8px 0}
+.hint a{color:var(--acc)}
+
+/* usage checklist */
+.useRow{
+  display:flex;align-items:center;gap:10px;padding:13px 14px;border-radius:16px;
+  background:var(--bg);border:1.5px solid var(--line);margin-bottom:9px;
+  font-size:15px;font-weight:600;transition:transform .12s;
+}
+.useRow:active{transform:scale(.97)}
+.useRow .arrow{color:var(--sub);font-size:13px}
+.useRow .after{margin-left:auto;font-weight:800;color:var(--acc);font-size:14px;
+  background:#FFF1E6;padding:4px 11px;border-radius:99px}
+.useRow .after.gone{color:var(--pink);background:#FFE9F0}
+.useRow .after.same{color:var(--sub);background:var(--line)}
+
+/* scan review */
+.scanRow{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:16px;
+  background:var(--bg);border:1.5px solid var(--line);margin-bottom:9px;font-size:15px;font-weight:600}
+.scanRow.off{opacity:.38}
+.scanRow .em{font-size:20px}
+.scanRow .q{margin-left:auto;font-size:13px;font-weight:800;color:var(--acc)}
+
+/* ---------- loading ---------- */
+#loader{
+  position:fixed;inset:0;z-index:60;display:none;flex-direction:column;align-items:center;justify-content:center;
+  background:rgba(255,247,238,.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+}
+#loader.on{display:flex}
+#loader .pan{font-size:64px;animation:bounceY 1s ease-in-out infinite}
+#loader .msg{margin-top:18px;font-size:16px;font-weight:700;color:var(--sub)}
+
+/* ---------- toast ---------- */
+#toasts{position:fixed;top:14px;left:0;right:0;z-index:70;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
+.toast{
+  background:var(--ink);color:#fff;font-size:14px;font-weight:700;padding:11px 18px;
+  border-radius:99px;box-shadow:0 8px 24px rgba(51,38,29,.25);animation:fadeUp .3s ease both;
+  max-width:86vw;
+}
+
+/* confetti */
+.confetto{position:fixed;top:-40px;z-index:80;font-size:24px;pointer-events:none;animation:fall 1.5s ease-in forwards}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><span class="pan">🍳</span>Cooksy</div>
+  <button class="gear" onclick="settingsSheet()">⚙️</button>
+</header>
+
+<main>
+  <section id="view-fridge" class="view"></section>
+  <section id="view-cook" class="view"></section>
+  <section id="view-history" class="view"></section>
+</main>
+
+<nav>
+  <div class="navInner">
+    <button class="navBtn" id="nav-fridge" onclick="nav('fridge')"><span class="ic">🧊</span>Fridge</button>
+    <button class="navBtn" id="nav-cook" onclick="nav('cook')"><span class="ic">🍳</span>Cook</button>
+    <button class="navBtn" id="nav-history" onclick="nav('history')"><span class="ic">📖</span>History</button>
+  </div>
+</nav>
+
+<div id="sheetBack" onclick="closeSheet()"></div>
+<div id="sheet"></div>
+<div id="loader"><div class="pan">🍳</div><div class="msg" id="loaderMsg">Cooking up ideas…</div></div>
+<div id="toasts"></div>
+<input type="file" id="scanInput" accept="image/*" capture="environment" style="display:none">
+<input type="file" id="importInput" accept=".json" style="display:none">
+
+<script>
+'use strict';
+/* ================= data ================= */
+const store = {
+  get(k, d){ try{ const v = JSON.parse(localStorage.getItem('cooksy.'+k)); return v === null || v === undefined ? d : v }catch(e){ return d } },
+  set(k, v){ localStorage.setItem('cooksy.'+k, JSON.stringify(v)) }
+};
+const DEFAULT_STAPLES = ['salt','black pepper','olive oil','vegetable oil','butter','flour','sugar','garlic powder','onion powder','paprika','cumin','oregano','cinnamon','soy sauce','vinegar','baking powder','vanilla extract'];
+const CATS = [
+  ['produce','🥬 Produce'], ['dairy','🥛 Dairy & Eggs'], ['meat','🍗 Meat & Fish'],
+  ['pantry','🥫 Pantry'], ['other','🍽️ Other']
+];
+const SEED = {
+  apple:['🍎','produce'],banana:['🍌','produce'],orange:['🍊','produce'],lemon:['🍋','produce'],
+  lime:['🍋','produce'],strawberry:['🍓','produce'],blueberry:['🫐','produce'],grape:['🍇','produce'],
+  watermelon:['🍉','produce'],mango:['🥭','produce'],peach:['🍑','produce'],pear:['🍐','produce'],
+  cherry:['🍒','produce'],pineapple:['🍍','produce'],avocado:['🥑','produce'],kiwi:['🥝','produce'],
+  tomato:['🍅','produce'],potato:['🥔','produce'],'sweet potato':['🍠','produce'],carrot:['🥕','produce'],
+  onion:['🧅','produce'],garlic:['🧄','produce'],broccoli:['🥦','produce'],cucumber:['🥒','produce'],
+  lettuce:['🥬','produce'],spinach:['🥬','produce'],kale:['🥬','produce'],cabbage:['🥬','produce'],
+  'bell pepper':['🫑','produce'],pepper:['🫑','produce'],chili:['🌶️','produce'],jalapeno:['🌶️','produce'],
+  corn:['🌽','produce'],mushroom:['🍄','produce'],eggplant:['🍆','produce'],zucchini:['🥒','produce'],
+  celery:['🥬','produce'],ginger:['🫚','produce'],parsley:['🌿','produce'],cilantro:['🌿','produce'],
+  basil:['🌿','produce'],mint:['🌿','produce'],dill:['🌿','produce'],'green onion':['🧅','produce'],
+  scallion:['🧅','produce'],cauliflower:['🥦','produce'],asparagus:['🥬','produce'],'green bean':['🫛','produce'],
+  pea:['🫛','produce'],pumpkin:['🎃','produce'],beet:['🥕','produce'],radish:['🥕','produce'],
+  milk:['🥛','dairy'],cheese:['🧀','dairy'],cheddar:['🧀','dairy'],mozzarella:['🧀','dairy'],
+  parmesan:['🧀','dairy'],feta:['🧀','dairy'],'cream cheese':['🧀','dairy'],yogurt:['🥣','dairy'],
+  'greek yogurt':['🥣','dairy'],butter:['🧈','dairy'],cream:['🥛','dairy'],'heavy cream':['🥛','dairy'],
+  'sour cream':['🥣','dairy'],egg:['🥚','dairy'],'cottage cheese':['🧀','dairy'],
+  chicken:['🍗','meat'],'chicken breast':['🍗','meat'],'chicken thigh':['🍗','meat'],
+  'ground beef':['🥩','meat'],beef:['🥩','meat'],steak:['🥩','meat'],pork:['🥩','meat'],
+  bacon:['🥓','meat'],ham:['🍖','meat'],sausage:['🌭','meat'],salmon:['🐟','meat'],
+  tuna:['🐟','meat'],shrimp:['🍤','meat'],fish:['🐟','meat'],turkey:['🦃','meat'],lamb:['🥩','meat'],
+  cod:['🐟','meat'],tilapia:['🐟','meat'],'ground turkey':['🦃','meat'],
+  rice:['🍚','pantry'],pasta:['🍝','pantry'],spaghetti:['🍝','pantry'],bread:['🍞','pantry'],
+  tortilla:['🫓','pantry'],pita:['🫓','pantry'],flour:['🌾','pantry'],sugar:['🍬','pantry'],
+  honey:['🍯','pantry'],oats:['🥣','pantry'],oatmeal:['🥣','pantry'],cereal:['🥣','pantry'],
+  bean:['🫘','pantry'],'black bean':['🫘','pantry'],chickpea:['🫘','pantry'],lentil:['🫘','pantry'],
+  'canned tomato':['🥫','pantry'],'tomato sauce':['🥫','pantry'],'pasta sauce':['🥫','pantry'],
+  'tomato paste':['🥫','pantry'],'peanut butter':['🥜','pantry'],jam:['🍓','pantry'],
+  nut:['🥜','pantry'],almond:['🥜','pantry'],walnut:['🥜','pantry'],peanut:['🥜','pantry'],
+  chocolate:['🍫','pantry'],'chocolate chip':['🍫','pantry'],cocoa:['🍫','pantry'],
+  'soy sauce':['🍶','pantry'],ketchup:['🥫','pantry'],mayo:['🥫','pantry'],mayonnaise:['🥫','pantry'],
+  mustard:['🥫','pantry'],'olive oil':['🫒','pantry'],'hot sauce':['🌶️','pantry'],
+  noodle:['🍜','pantry'],ramen:['🍜','pantry'],quinoa:['🍚','pantry'],couscous:['🍚','pantry'],
+  breadcrumb:['🍞','pantry'],'coconut milk':['🥥','pantry'],broth:['🍲','pantry'],
+  'chicken broth':['🍲','pantry'],stock:['🍲','pantry'],'maple syrup':['🍁','pantry'],
+  tofu:['🧊','other'],'ice cream':['🍨','other'],'frozen pea':['🫛','other'],
+  'pizza dough':['🍕','other'],dumpling:['🥟','other'],leftover:['🍱','other'],
+  juice:['🧃','other'],'orange juice':['🧃','other'],soda:['🥤','other'],wine:['🍷','other'],
+  beer:['🍺','other'],hummus:['🥣','other'],pickle:['🥒','other'],olive:['🫒','other'],
+  kimchi:['🥬','other'],salsa:['🌶️','other'],guacamole:['🥑','other']
+};
+
+let fridge   = store.get('fridge', []);
+let cooked   = store.get('cooked', []);
+let known    = store.get('known', {});
+let settings = store.get('settings', { apiKey:'', staples: DEFAULT_STAPLES.slice() });
+let lastRecipes = store.get('lastRecipes', null);
+
+const saveFridge = () => store.set('fridge', fridge);
+const saveCooked = () => store.set('cooked', cooked);
+const saveKnown  = () => store.set('known', known);
+const saveSettings = () => store.set('settings', settings);
+
+/* ================= helpers ================= */
+const $ = s => document.querySelector(s);
+const uid = () => Math.random().toString(36).slice(2,10);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const cap = s => s ? s[0].toUpperCase() + s.slice(1) : s;
+
+function toast(msg){
+  const t = document.createElement('div');
+  t.className = 'toast'; t.textContent = msg;
+  $('#toasts').appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity .4s'; }, 2400);
+  setTimeout(() => t.remove(), 2900);
+}
+
+function confetti(){
+  const ems = ['🎉','🍎','🥕','🧀','🍋','✨','🍓','🥦'];
+  for(let i = 0; i < 14; i++){
+    const c = document.createElement('div');
+    c.className = 'confetto';
+    c.textContent = ems[i % ems.length];
+    c.style.left = (5 + Math.random()*90) + 'vw';
+    c.style.animationDelay = (Math.random()*0.4) + 's';
+    document.body.appendChild(c);
+    setTimeout(() => c.remove(), 2200);
+  }
+}
+
+const LOAD_MSGS = {
+  recipes: ['Chopping ideas…','Tasting combos…','Raiding your fridge…','Whisking it together…'],
+  scan: ['Peeking in your fridge…','Spotting the goods…','Counting apples…'],
+  usage: ['Doing the dishes…','Checking what’s left…','Wiping the counter…']
+};
+let loaderTimer = null;
+function loading(on, kind){
+  const el = $('#loader');
+  if(on){
+    const msgs = LOAD_MSGS[kind] || LOAD_MSGS.recipes;
+    let i = 0;
+    $('#loaderMsg').textContent = msgs[0];
+    clearInterval(loaderTimer);
+    loaderTimer = setInterval(() => { i = (i+1) % msgs.length; $('#loaderMsg').textContent = msgs[i]; }, 1800);
+    el.classList.add('on');
+  } else {
+    clearInterval(loaderTimer);
+    el.classList.remove('on');
+  }
+}
+
+function lookupItem(rawName){
+  const n = rawName.toLowerCase().trim();
+  if(known[n]) return { name:n, emoji:known[n].emoji, category:known[n].category };
+  if(SEED[n]) return { name:n, emoji:SEED[n][0], category:SEED[n][1] };
+  // ponytail: naive singularize — strip trailing 's'; covers apples→apple, misses berries→berry
+  const sing = n.replace(/s$/,'');
+  if(SEED[sing]) return { name:sing, emoji:SEED[sing][0], category:SEED[sing][1] };
+  if(known[sing]) return { name:sing, emoji:known[sing].emoji, category:known[sing].category };
+  return { name:n, emoji:'🥘', category:'other' };
+}
+
+function qtyLabel(q){
+  if(!q) return '';
+  if(q.type === 'count') return '×' + q.n;
+  return { full:'Full', half:'Half', low:'Low' }[q.v] || q.v;
+}
+function isLow(q){
+  return q && ((q.type === 'count' && q.n <= 1) || (q.type === 'level' && q.v === 'low'));
+}
+
+function addToFridge(name, qty, emoji, category){
+  const info = lookupItem(name);
+  emoji = emoji || info.emoji; category = category || info.category;
+  const nm = info.name;
+  known[nm] = { emoji, category }; saveKnown();
+  const ex = fridge.find(f => f.name === nm);
+  if(ex){
+    if(ex.qty.type === 'count' && qty.type === 'count') ex.qty.n += qty.n;
+    else ex.qty = qty;
+    ex.addedAt = Date.now();
+  } else {
+    fridge.push({ id: uid(), name: nm, emoji, category, qty, addedAt: Date.now() });
+  }
+  saveFridge();
+}
+
+/* ================= claude api ================= */
+async function claude(content, system, maxTokens){
+  if(!settings.apiKey) throw new Error('NO_KEY');
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers:{
+      'content-type':'application/json',
+      'x-api-key': settings.apiKey,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true'
+    },
+    body: JSON.stringify({
+      model:'claude-sonnet-5',
+      max_tokens: maxTokens || 3000,
+      system: system || 'You are a helpful cooking assistant. Respond with ONLY valid JSON. No markdown fences, no commentary.',
+      messages:[{ role:'user', content }]
+    })
+  });
+  if(!r.ok){
+    let msg = 'API error ' + r.status;
+    try{ const e = await r.json(); msg += ': ' + (e.error && e.error.message || '').slice(0,140) }catch(_){}
+    throw new Error(msg);
+  }
+  const d = await r.json();
+  return (d.content || []).map(b => b.text || '').join('');
+}
+
+function parseJSONLoose(t){
+  t = String(t).trim().replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
+  const s = t.indexOf('{'), e = t.lastIndexOf('}');
+  if(s < 0 || e <= s) throw new Error('no JSON found');
+  return JSON.parse(t.slice(s, e+1));
+}
+
+async function askJSON(content, system){
+  try{
+    return parseJSONLoose(await claude(content, system));
+  }catch(err){
+    if(err.message === 'NO_KEY' || /^API error/.test(err.message)) throw err;
+    // one retry on malformed JSON
+    return parseJSONLoose(await claude(content, system));
+  }
+}
+
+function apiErrorToast(err){
+  if(err.message === 'NO_KEY'){ toast('Add your API key in ⚙️ first'); settingsSheet(); }
+  else if(/401/.test(err.message)) toast('API key rejected — check it in ⚙️');
+  else if(/Failed to fetch/i.test(err.message)) toast('No connection 📡');
+  else toast(err.message.slice(0,90));
+}
+
+/* ================= navigation ================= */
+let currentView = 'fridge';
+function nav(v){
+  currentView = v;
+  ['fridge','cook','history'].forEach(x => {
+    $('#view-'+x).classList.toggle('on', x === v);
+    $('#nav-'+x).classList.toggle('on', x === v);
+  });
+  if(v === 'fridge') renderFridge();
+  if(v === 'cook') renderCookHome();
+  if(v === 'history') renderHistory();
+}
+
+/* ================= fridge view ================= */
+function renderFridge(){
+  const v = $('#view-fridge');
+  let html = `
+    <h1>My Fridge</h1>
+    <p class="sub">${fridge.length ? fridge.length + ' item' + (fridge.length>1?'s':'') + ' tracked' : 'What have you got?'}</p>
+    <div class="actionRow">
+      <button class="bigBtn primary" onclick="addSheet()">＋ Add item</button>
+      <button class="bigBtn" onclick="startScan()">📸 Scan fridge</button>
+    </div>`;
+  if(!fridge.length){
+    html += `<div class="empty"><span class="big">🧊</span>Fridge is empty!<br>Add items or snap a photo.</div>`;
+  } else {
+    const stale = Date.now() - 7*864e5;
+    for(const [cat, label] of CATS){
+      const items = fridge.filter(f => f.category === cat);
+      if(!items.length) continue;
+      html += `<div class="catHead">${label}</div><div class="chipGrid">`;
+      for(const it of items){
+        html += `<button class="itemChip" onclick="editItem('${it.id}')">
+          ${it.addedAt < stale ? '<span class="staleDot" title="added a while ago"></span>' : ''}
+          <span class="em">${it.emoji}</span>${esc(cap(it.name))}
+          <span class="qtyBadge ${isLow(it.qty)?'low':''}">${qtyLabel(it.qty)}</span>
+        </button>`;
+      }
+      html += `</div>`;
+    }
+    html += `<p class="hint" style="margin-top:20px">Tap an item to adjust or remove. Orange dot = added over a week ago.</p>`;
+  }
+  v.innerHTML = html;
+}
+
+/* ---- add item ---- */
+let addQty = { type:'count', n:1 };
+function addSheet(){
+  addQty = { type:'count', n:1 };
+  openSheet(`
+    <div class="sheetT">Add to fridge</div>
+    <input class="field" id="addName" placeholder="e.g. apples, milk, chicken…" autocomplete="off" oninput="renderSuggest()">
+    <div class="suggest" id="suggestBox"></div>
+    <div class="quizLabel" style="text-align:left;margin:4px 0 8px">How much?</div>
+    <div class="qtyRow" id="qtyRow"></div>
+    <button class="sheetBtn" onclick="commitAdd()">Add it 🎉</button>
+  `);
+  renderQtyRow();
+  renderSuggest();
+  setTimeout(() => { const f = $('#addName'); if(f) f.focus(); }, 350);
+}
+const QTY_OPTS = [
+  {type:'count',n:1},{type:'count',n:2},{type:'count',n:3},{type:'count',n:4},{type:'count',n:6},
+  {type:'level',v:'full'},{type:'level',v:'half'},{type:'level',v:'low'}
+];
+function renderQtyRow(){
+  const box = $('#qtyRow'); if(!box) return;
+  box.innerHTML = QTY_OPTS.map((q,i) =>
+    `<button class="qtyOpt ${JSON.stringify(q)===JSON.stringify(addQty)?'sel':''}" onclick="setAddQty(${i})">${qtyLabel(q)}</button>`
+  ).join('');
+}
+function setAddQty(i){ addQty = QTY_OPTS[i]; renderQtyRow(); }
+function renderSuggest(){
+  const box = $('#suggestBox'); if(!box) return;
+  const q = ($('#addName') ? $('#addName').value : '').toLowerCase().trim();
+  const all = [...new Set([...Object.keys(known), ...Object.keys(SEED)])];
+  let names;
+  if(!q){
+    const inF = new Set(fridge.map(f => f.name));
+    names = Object.keys(known).filter(n => !inF.has(n)).slice(0,10);
+    if(names.length < 6) names = names.concat(['egg','milk','chicken','tomato','cheese','rice'].filter(n => !inF.has(n) && !names.includes(n)));
+  } else {
+    names = all.filter(n => n.startsWith(q)).concat(all.filter(n => !n.startsWith(q) && n.includes(q))).slice(0,10);
+  }
+  box.innerHTML = names.map(n => {
+    const info = lookupItem(n);
+    return `<button class="sgChip" onclick="pickSuggest('${esc(n)}')">${info.emoji} ${esc(cap(n))}</button>`;
+  }).join('');
+}
+function pickSuggest(n){ $('#addName').value = n; renderSuggest(); }
+function commitAdd(){
+  const nm = ($('#addName').value || '').trim();
+  if(!nm){ toast('Type an item first'); return; }
+  addToFridge(nm, JSON.parse(JSON.stringify(addQty)));
+  toast(lookupItem(nm).emoji + ' ' + cap(lookupItem(nm).name) + ' added!');
+  $('#addName').value = '';
+  renderSuggest(); renderFridge();
+}
+
+/* ---- edit item ---- */
+let editId = null;
+function editItem(id){
+  editId = id;
+  renderEditSheet();
+}
+function renderEditSheet(){
+  const it = fridge.find(f => f.id === editId);
+  if(!it){ closeSheet(); return; }
+  const days = Math.floor((Date.now() - it.addedAt) / 864e5);
+  let qtyCtl;
+  if(it.qty.type === 'count'){
+    qtyCtl = `
+      <div class="stepper">
+        <button class="stepBtn" onclick="bumpQty(-1)">−</button>
+        <span class="stepVal">×${it.qty.n}</span>
+        <button class="stepBtn" onclick="bumpQty(1)">＋</button>
+      </div>
+      <button class="linkBtn" onclick="switchQtyType()">Track as level (full / half / low) instead</button>`;
+  } else {
+    qtyCtl = `
+      <div class="segRow">
+        ${['full','half','low'].map(v => `<button class="seg ${it.qty.v===v?'sel':''}" onclick="setLevel('${v}')">${cap(v)}</button>`).join('')}
+      </div>
+      <button class="linkBtn" onclick="switchQtyType()">Track as count (×1, ×2…) instead</button>`;
+  }
+  openSheet(`
+    <div class="sheetT">${it.emoji} ${esc(cap(it.name))}</div>
+    <p class="hint">Added ${days === 0 ? 'today' : days + ' day' + (days>1?'s':'') + ' ago'}</p>
+    ${qtyCtl}
+    <button class="sheetBtn" onclick="closeSheet(); renderFridge()">Done</button>
+    <button class="sheetBtn danger" onclick="deleteItem()" style="margin-top:8px">🗑 Remove from fridge</button>
+  `);
+}
+function bumpQty(d){
+  const it = fridge.find(f => f.id === editId); if(!it) return;
+  it.qty.n = Math.max(1, it.qty.n + d);
+  saveFridge(); renderEditSheet();
+}
+function setLevel(v){
+  const it = fridge.find(f => f.id === editId); if(!it) return;
+  it.qty = { type:'level', v };
+  saveFridge(); renderEditSheet();
+}
+function switchQtyType(){
+  const it = fridge.find(f => f.id === editId); if(!it) return;
+  it.qty = it.qty.type === 'count' ? { type:'level', v:'full' } : { type:'count', n:1 };
+  saveFridge(); renderEditSheet();
+}
+function deleteItem(){
+  const it = fridge.find(f => f.id === editId);
+  fridge = fridge.filter(f => f.id !== editId);
+  saveFridge(); closeSheet(); renderFridge();
+  if(it) toast(it.emoji + ' ' + cap(it.name) + ' removed');
+}
+
+/* ---- photo scan ---- */
+function startScan(){
+  if(!settings.apiKey){ toast('Add your API key in ⚙️ first'); settingsSheet(); return; }
+  $('#scanInput').click();
+}
+$('#scanInput').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if(!file) return;
+  loading(true, 'scan');
+  try{
+    const b64 = await imageToBase64(file, 1024);
+    const res = await askJSON([
+      { type:'image', source:{ type:'base64', media_type:'image/jpeg', data: b64 } },
+      { type:'text', text:
+`List every distinct food item you can clearly identify in this fridge/pantry photo.
+Return ONLY JSON:
+{"items":[{"name":"lowercase singular name","emoji":"one emoji","category":"produce|dairy|meat|pantry|other","qty":{"type":"count","n":2} or {"type":"level","v":"full|half|low"}}]}
+Be conservative — skip anything you cannot identify with confidence. Skip non-food.` }
+    ]);
+    loading(false);
+    const items = (res.items || []).filter(i => i && i.name);
+    if(!items.length){ toast('Couldn’t spot anything — try typing instead'); return; }
+    scanReviewSheet(items);
+  }catch(err){
+    loading(false); apiErrorToast(err);
+  }
+});
+function imageToBase64(file, maxPx){
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+      const cv = document.createElement('canvas');
+      cv.width = Math.round(img.width * scale);
+      cv.height = Math.round(img.height * scale);
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      URL.revokeObjectURL(url);
+      resolve(cv.toDataURL('image/jpeg', 0.8).split(',')[1]);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read image')); };
+    img.src = url;
+  });
+}
+let scanItems = [];
+function scanReviewSheet(items){
+  scanItems = items.map(i => ({ ...i, include: true }));
+  openSheet(`
+    <div class="sheetT">📸 Found ${items.length} item${items.length>1?'s':''}</div>
+    <p class="hint">Tap to exclude anything wrong, then confirm.</p>
+    <div id="scanList"></div>
+    <button class="sheetBtn" onclick="confirmScan()">Add to fridge ✅</button>
+  `);
+  renderScanList();
+}
+function renderScanList(){
+  $('#scanList').innerHTML = scanItems.map((it, i) => `
+    <button class="scanRow ${it.include?'':'off'}" onclick="toggleScan(${i})" style="width:100%;text-align:left">
+      <span class="em">${esc(it.emoji || '🥘')}</span>${esc(cap(it.name))}
+      <span class="q">${qtyLabel(it.qty) || '×1'}</span>
+    </button>`).join('');
+}
+function toggleScan(i){ scanItems[i].include = !scanItems[i].include; renderScanList(); }
+function confirmScan(){
+  let n = 0;
+  for(const it of scanItems){
+    if(!it.include) continue;
+    const qty = (it.qty && (it.qty.type === 'count' || it.qty.type === 'level')) ? it.qty : { type:'count', n:1 };
+    const cat = ['produce','dairy','meat','pantry','other'].includes(it.category) ? it.category : null;
+    addToFridge(it.name, qty, it.emoji, cat);
+    n++;
+  }
+  closeSheet(); renderFridge();
+  toast(n + ' item' + (n!==1?'s':'') + ' added 🎉');
+}
+
+/* ================= cook view ================= */
+let quiz = null; // {step, taste:Set, texture:Set, effort, vibe}
+
+function renderCookHome(){
+  quiz = null;
+  const v = $('#view-cook');
+  let html = `<h1>Let’s cook</h1>`;
+  if(!settings.apiKey){
+    html += `<div class="banner">🔑 <b>One-time setup:</b> add your Claude API key in <b>⚙️ settings</b> (top right) so Cooksy can dream up recipes.</div>`;
+  }
+  if(fridge.length < 2){
+    html += `<div class="banner">🧊 Your fridge looks pretty empty — add at least a couple of items so I have something to work with!</div>`;
+  }
+  html += `
+    <div class="hero">
+      <h2>What are you craving?</h2>
+      <p>10-second quiz → 3 recipes from your ${fridge.length} fridge item${fridge.length!==1?'s':''}.</p>
+      <button class="heroBtn" onclick="startQuiz()">Start craving quiz ✨</button>
+    </div>`;
+  if(lastRecipes && lastRecipes.recipes && lastRecipes.recipes.length){
+    html += `<div class="sectionT">Last ideas</div>` + recipeCardsHtml(lastRecipes.recipes);
+  }
+  v.innerHTML = html;
+}
+
+const QUIZ_STEPS = [
+  { key:'taste',   q:'What taste are you craving?', multi:true,
+    opts:[['🍬','sweet'],['🧂','salty'],['🍋','sour'],['🌶️','spicy'],['🍖','savory'],['🧀','cheesy']] },
+  { key:'texture', q:'What texture sounds good?', multi:true,
+    opts:[['🥨','crispy'],['🍦','creamy'],['🥯','chewy'],['☁️','soft'],['🍜','soupy'],['🥗','fresh']] },
+  { key:'effort',  q:'How much effort today?', multi:false,
+    opts:[['⚡','quick (under 20 min)'],['🍳','normal (20-45 min)'],['👨‍🍳','a project (45+ min)']],
+    extra:{ key:'vibe', label:'And how hungry?', opts:[['🥗','something light'],['🍲','something hearty']] } }
+];
+
+function startQuiz(){
+  if(!settings.apiKey){ toast('Add your API key in ⚙️ first'); settingsSheet(); return; }
+  if(fridge.length < 2){ toast('Add a few fridge items first 🧊'); nav('fridge'); return; }
+  quiz = { step:0, taste:new Set(), texture:new Set(), effort:null, vibe:null };
+  renderQuiz();
+}
+function renderQuiz(){
+  const st = QUIZ_STEPS[quiz.step];
+  const v = $('#view-cook');
+  let chips = st.opts.map(([em, val]) => {
+    const sel = st.multi ? quiz[st.key].has(val) : quiz[st.key] === val;
+    return `<button class="qChip ${sel?'sel':''}" onclick="quizPick('${st.key}','${val}',${st.multi})">${em} ${esc(val)}</button>`;
+  }).join('');
+  let extra = '';
+  if(st.extra){
+    extra = `<div class="quizLabel">${st.extra.label}</div><div class="quizChips">` +
+      st.extra.opts.map(([em, val]) =>
+        `<button class="qChip ${quiz[st.extra.key]===val?'sel':''}" onclick="quizPick('${st.extra.key}','${val}',false)">${em} ${esc(val)}</button>`
+      ).join('') + `</div>`;
+  }
+  const last = quiz.step === QUIZ_STEPS.length - 1;
+  v.innerHTML = `
+    <div class="quizDots">${QUIZ_STEPS.map((_,i)=>`<i class="${i<=quiz.step?'on':''}"></i>`).join('')}</div>
+    <div class="quizQ">${st.q}</div>
+    <div class="quizChips">${chips}</div>
+    ${extra}
+    <div class="quizNav">
+      <button class="bigBtn" onclick="quizBack()">← Back</button>
+      <button class="bigBtn primary" onclick="quizNext()">${last ? 'Find recipes 🍳' : 'Next →'}</button>
+    </div>
+    <p class="hint" style="text-align:center">Nothing selected = surprise me 🎲</p>`;
+}
+function quizPick(key, val, multi){
+  if(multi){
+    quiz[key].has(val) ? quiz[key].delete(val) : quiz[key].add(val);
+  } else {
+    quiz[key] = quiz[key] === val ? null : val;
+  }
+  renderQuiz();
+}
+function quizBack(){
+  if(quiz.step === 0){ renderCookHome(); return; }
+  quiz.step--; renderQuiz();
+}
+function quizNext(){
+  if(quiz.step < QUIZ_STEPS.length - 1){ quiz.step++; renderQuiz(); return; }
+  findRecipes();
+}
+
+async function findRecipes(){
+  const cravings = [];
+  if(quiz.taste.size)   cravings.push('taste: ' + [...quiz.taste].join(', '));
+  if(quiz.texture.size) cravings.push('texture: ' + [...quiz.texture].join(', '));
+  if(quiz.effort)       cravings.push('effort: ' + quiz.effort);
+  if(quiz.vibe)         cravings.push('vibe: ' + quiz.vibe);
+  const cravingStr = cravings.length ? cravings.join('; ') : 'surprise me — anything tasty';
+  const fridgeStr = fridge.map(f => `- ${f.name} (${qtyLabel(f.qty)})`).join('\n');
+  const recent = cooked.slice(0,5).map(c => c.recipe.name).join(', ');
+  loading(true, 'recipes');
+  try{
+    const res = await askJSON(
+`My fridge inventory with rough quantities:
+${fridgeStr}
+
+Pantry staples I always have (assume available): ${settings.staples.join(', ')}
+My cravings right now: ${cravingStr}
+${recent ? 'Recently cooked (do not repeat these): ' + recent : ''}
+
+Give me exactly 3 different realistic home recipes I can cook right now, primarily using my fridge items plus staples. Respect my quantities (do not use more of something than I have). Each recipe may include AT MOST 2 ingredients I would need to buy — mark those with status "buy". Match the cravings.
+
+Return ONLY JSON:
+{"recipes":[{"name":"...","emoji":"one emoji","minutes":25,"description":"max 90 chars, appetizing","ingredients":[{"item":"...","amount":"e.g. 2, or 1 cup","status":"have|staple|buy"}],"steps":["step 1","step 2"]}]}`,
+      'You are a creative but practical home-cooking chef. Respond with ONLY valid JSON. No markdown, no commentary.');
+    loading(false);
+    const recipes = (res.recipes || []).filter(r => r && r.name && Array.isArray(r.ingredients) && Array.isArray(r.steps)).slice(0,3);
+    if(!recipes.length){ toast('Got a weird answer — try again'); return; }
+    lastRecipes = { recipes, at: Date.now() };
+    store.set('lastRecipes', lastRecipes);
+    renderResults();
+  }catch(err){
+    loading(false); apiErrorToast(err);
+  }
+}
+
+function recipeCardsHtml(recipes){
+  return recipes.map((r, i) => {
+    const uses = r.ingredients.filter(g => g.status === 'have').slice(0,4);
+    const buys = r.ingredients.filter(g => g.status === 'buy');
+    return `
+    <div class="rCard" style="animation-delay:${i*90}ms" onclick="openRecipe(${i})">
+      <div class="rEmoji">${esc(r.emoji || '🍽️')}</div>
+      <div class="rBody">
+        <div class="rName">${esc(r.name)}</div>
+        <p class="rDesc">${esc(r.description || '')}</p>
+        <div class="rMeta">
+          <span class="tag time">⏱ ${esc(String(r.minutes || '?'))} min</span>
+          ${uses.map(g => `<span class="tag use">${esc(g.item)}</span>`).join('')}
+          ${buys.map(g => `<span class="tag buy">🛒 ${esc(g.item)}</span>`).join('')}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderResults(){
+  const v = $('#view-cook');
+  v.innerHTML = `
+    <button class="backBtn" onclick="renderCookHome()">← New search</button>
+    <h1>Fresh ideas 🍽️</h1>
+    <p class="sub">Tap one to see the full recipe.</p>
+    ${recipeCardsHtml(lastRecipes.recipes)}`;
+}
+
+let detailReturn = 'results';
+function openRecipe(i){
+  detailReturn = 'results';
+  renderRecipeDetail(lastRecipes.recipes[i]);
+}
+let currentRecipe = null;
+function renderRecipeDetail(r){
+  currentRecipe = r;
+  const v = $('#view-cook');
+  nav('cook');
+  const stIcon = { have:'✅', staple:'🧂', buy:'🛒' };
+  v.innerHTML = `
+    <button class="backBtn" onclick="${detailReturn === 'history' ? "nav('history')" : (lastRecipes ? 'renderResults()' : 'renderCookHome()')}">← Back</button>
+    <div class="detailHero">
+      <span class="em">${esc(r.emoji || '🍽️')}</span>
+      <h2>${esc(r.name)}</h2>
+      <span class="tag time" style="font-size:13px;padding:5px 13px">⏱ ${esc(String(r.minutes || '?'))} min</span>
+    </div>
+    <div class="sectionT">Ingredients</div>
+    <div class="ingList">
+      ${r.ingredients.map(g => `
+        <div class="ingRow ${g.status === 'buy' ? 'buy' : ''}">
+          <span class="st">${stIcon[g.status] || '•'}</span>
+          <span class="nm">${esc(cap(g.item))}</span>
+          <span class="amt">${esc(g.amount || '')}</span>
+        </div>`).join('')}
+    </div>
+    ${r.ingredients.some(g => g.status === 'buy') ? '<p class="hint">🛒 = worth grabbing from the store. 🧂 = pantry staple.</p>' : '<p class="hint">🧂 = pantry staple you already have.</p>'}
+    <div class="sectionT">Steps</div>
+    ${r.steps.map((s, i) => `<div class="stepRow"><span class="stepNum">${i+1}</span><span>${esc(s)}</span></div>`).join('')}
+    <button class="madeBtn" onclick="madeIt()">✅ I made it!</button>`;
+  window.scrollTo({ top: 0 });
+}
+
+/* ---- I made it → usage estimate ---- */
+let usageRows = [];
+async function madeIt(){
+  const r = currentRecipe;
+  if(!r) return;
+  const fridgeStr = fridge.map(f => `- ${f.name}: ${qtyLabel(f.qty)}`).join('\n');
+  loading(true, 'usage');
+  try{
+    const res = await askJSON(
+`I just cooked "${r.name}".
+Recipe ingredients: ${r.ingredients.map(g => g.item + ' (' + (g.amount || 'some') + ')').join('; ')}
+
+My fridge BEFORE cooking:
+${fridgeStr}
+
+Estimate what remains of my fridge items after cooking this once. Return ONLY JSON:
+{"updates":[{"name":"exact fridge item name from my list","after":null or {"type":"count","n":1} or {"type":"level","v":"full|half|low"}}]}
+"after": null means completely used up. Only include fridge items whose amount changed. Do not include staples.`,
+      'You estimate ingredient usage. Respond with ONLY valid JSON.');
+    loading(false);
+    const updates = (res.updates || []).map(u => {
+      const item = fridge.find(f => f.name === String(u.name || '').toLowerCase().trim())
+              || fridge.find(f => String(u.name || '').toLowerCase().includes(f.name));
+      return item ? { item, after: u.after } : null;
+    }).filter(Boolean);
+    usageSheet(updates, r);
+  }catch(err){
+    loading(false); apiErrorToast(err);
+  }
+}
+function usageSheet(updates, r){
+  usageRows = updates.map(u => {
+    const opts = [];
+    const seen = new Set();
+    const push = (after, label) => {
+      const k = JSON.stringify(after);
+      if(seen.has(k)) return; seen.add(k);
+      opts.push({ after, label });
+    };
+    push(u.after, u.after === null ? 'Gone' : qtyLabel(u.after));
+    push(null, 'Gone');
+    if(u.item.qty.type === 'count' && u.item.qty.n > 1) push({ type:'count', n: u.item.qty.n - 1 }, '×' + (u.item.qty.n - 1));
+    if(u.item.qty.type === 'level'){ push({ type:'level', v:'half' }, 'Half'); push({ type:'level', v:'low' }, 'Low'); }
+    push(u.item.qty, 'Unchanged');
+    return { item: u.item, opts, sel: 0 };
+  });
+  openSheet(`
+    <div class="sheetT">🍽️ How did we do?</div>
+    <p class="hint">My guess of what got used — tap any line to correct it.</p>
+    <div id="usageList"></div>
+    <button class="sheetBtn" onclick="confirmUsage()">Update fridge ✨</button>
+    <button class="sheetBtn ghost" onclick="skipUsage()" style="margin-top:8px">Skip — fridge unchanged</button>
+  `);
+  renderUsageList();
+}
+function renderUsageList(){
+  const box = $('#usageList'); if(!box) return;
+  if(!usageRows.length){
+    box.innerHTML = '<p class="hint">Nothing from your fridge seems used — odd, but tap update to just log the cook.</p>';
+    return;
+  }
+  box.innerHTML = usageRows.map((row, i) => {
+    const o = row.opts[row.sel];
+    const cls = o.after === null ? 'gone' : (o.label === 'Unchanged' ? 'same' : '');
+    return `
+    <button class="useRow" style="width:100%;text-align:left" onclick="cycleUsage(${i})">
+      <span>${row.item.emoji}</span>${esc(cap(row.item.name))}
+      <span class="arrow">${qtyLabel(row.item.qty)} →</span>
+      <span class="after ${cls}">${esc(o.label)}</span>
+    </button>`;
+  }).join('');
+}
+function cycleUsage(i){
+  usageRows[i].sel = (usageRows[i].sel + 1) % usageRows[i].opts.length;
+  renderUsageList();
+}
+function applyCookLog(){
+  cooked.unshift({ id: uid(), recipe: currentRecipe, cookedAt: Date.now() });
+  cooked = cooked.slice(0, 100);
+  saveCooked();
+}
+function confirmUsage(){
+  for(const row of usageRows){
+    const after = row.opts[row.sel].after;
+    if(row.opts[row.sel].label === 'Unchanged') continue;
+    if(after === null){
+      fridge = fridge.filter(f => f.id !== row.item.id);
+    } else {
+      const f = fridge.find(x => x.id === row.item.id);
+      if(f) f.qty = after;
+    }
+  }
+  saveFridge();
+  applyCookLog();
+  closeSheet(); confetti();
+  toast('Fridge updated — nice cooking! 🎉');
+  renderCookHome(); nav('fridge');
+}
+function skipUsage(){
+  applyCookLog();
+  closeSheet(); confetti();
+  toast('Logged it — fridge untouched 👍');
+  renderCookHome();
+}
+
+/* ================= history view ================= */
+function renderHistory(){
+  const v = $('#view-history');
+  let html = `<h1>Cooked before</h1><p class="sub">${cooked.length ? 'Tap “again” to re-open a recipe.' : ''}</p>`;
+  if(!cooked.length){
+    html += `<div class="empty"><span class="big">📖</span>Nothing cooked yet.<br>Your kitchen victories will show up here!</div>`;
+  } else {
+    html += cooked.map((c, i) => `
+      <div class="hRow" style="animation-delay:${Math.min(i,8)*60}ms">
+        <span class="em">${esc(c.recipe.emoji || '🍽️')}</span>
+        <div>
+          <div class="hName">${esc(c.recipe.name)}</div>
+          <div class="hDate">${new Date(c.cookedAt).toLocaleDateString(undefined,{month:'short',day:'numeric'})} · ⏱ ${esc(String(c.recipe.minutes || '?'))} min</div>
+        </div>
+        <button class="againBtn" onclick="makeAgain('${c.id}')">Again 🍳</button>
+      </div>`).join('');
+  }
+  v.innerHTML = html;
+}
+function makeAgain(id){
+  const c = cooked.find(x => x.id === id);
+  if(!c) return;
+  detailReturn = 'history';
+  renderRecipeDetail(c.recipe);
+}
+
+/* ================= settings ================= */
+function settingsSheet(){
+  openSheet(`
+    <div class="sheetT">⚙️ Settings</div>
+    <div class="quizLabel" style="text-align:left;margin:2px 0 8px">Claude API key</div>
+    <input class="field" id="setKey" type="password" placeholder="sk-ant-…" value="${esc(settings.apiKey)}">
+    <p class="hint">Get one at <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a>. Stored only on this device. Each recipe search costs roughly a cent.</p>
+    <div class="quizLabel" style="text-align:left;margin:14px 0 8px">Pantry staples (always assumed)</div>
+    <textarea class="field" id="setStaples">${esc(settings.staples.join(', '))}</textarea>
+    <button class="sheetBtn" onclick="saveSettingsSheet()">Save ✅</button>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="sheetBtn ghost" style="margin:0" onclick="exportData()">⬇️ Export</button>
+      <button class="sheetBtn ghost" style="margin:0" onclick="$('#importInput').click()">⬆️ Import</button>
+    </div>
+    <button class="sheetBtn danger" onclick="clearAll()" style="margin-top:8px">🗑 Erase everything</button>
+  `);
+}
+function saveSettingsSheet(){
+  settings.apiKey = $('#setKey').value.trim();
+  settings.staples = $('#setStaples').value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  if(!settings.staples.length) settings.staples = DEFAULT_STAPLES.slice();
+  saveSettings();
+  closeSheet(); toast('Settings saved ✅');
+  if(currentView === 'cook') renderCookHome();
+}
+function exportData(){
+  const data = { fridge, cooked, known, staples: settings.staples, exportedAt: new Date().toISOString() };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'cooksy-backup.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Backup downloaded (key not included)');
+}
+$('#importInput').addEventListener('change', e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if(!file) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try{
+      const d = JSON.parse(rd.result);
+      if(Array.isArray(d.fridge)) fridge = d.fridge;
+      if(Array.isArray(d.cooked)) cooked = d.cooked;
+      if(d.known && typeof d.known === 'object') known = d.known;
+      if(Array.isArray(d.staples)) settings.staples = d.staples;
+      saveFridge(); saveCooked(); saveKnown(); saveSettings();
+      closeSheet(); nav('fridge');
+      toast('Backup restored 🎉');
+    }catch(err){ toast('That file doesn’t look like a Cooksy backup'); }
+  };
+  rd.readAsText(file);
+});
+function clearAll(){
+  if(!confirm('Erase fridge, history and settings on this device?')) return;
+  localStorage.removeItem('cooksy.fridge');
+  localStorage.removeItem('cooksy.cooked');
+  localStorage.removeItem('cooksy.known');
+  localStorage.removeItem('cooksy.settings');
+  localStorage.removeItem('cooksy.lastRecipes');
+  location.reload();
+}
+
+/* ================= sheet plumbing ================= */
+function openSheet(html){
+  $('#sheet').innerHTML = '<div class="grabber"></div>' + html;
+  $('#sheet').classList.add('on');
+  $('#sheetBack').classList.add('on');
+}
+function closeSheet(){
+  $('#sheet').classList.remove('on');
+  $('#sheetBack').classList.remove('on');
+}
+
+/* ================= self test (?test=1) ================= */
+function runSelfTest(){
+  const A = (cond, msg) => { if(!cond) throw new Error('SELFTEST FAIL: ' + msg) };
+  A(parseJSONLoose('```json\n{"a":1}\n```').a === 1, 'fence strip');
+  A(parseJSONLoose('noise {"a":{"b":2}} trailing').a.b === 2, 'loose extract');
+  A(qtyLabel({type:'count',n:3}) === '×3', 'qty count label');
+  A(qtyLabel({type:'level',v:'half'}) === 'Half', 'qty level label');
+  A(isLow({type:'count',n:1}) && isLow({type:'level',v:'low'}) && !isLow({type:'count',n:2}), 'isLow');
+  A(lookupItem('Apples').name === 'apple' && lookupItem('Apples').emoji === '🍎', 'singularize lookup');
+  const before = fridge.length;
+  addToFridge('__test item__', {type:'count',n:2});
+  addToFridge('__test item__', {type:'count',n:1});
+  const t = fridge.find(f => f.name === '__test item__');
+  A(t && t.qty.n === 3 && fridge.length === before + 1, 'merge add');
+  fridge = fridge.filter(f => f.name !== '__test item__'); saveFridge();
+  toast('Self-test passed ✅');
+}
+
+/* ================= boot ================= */
+if('serviceWorker' in navigator && location.protocol.startsWith('http')){
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+nav('fridge');
+if(location.search.includes('test=1')){
+  try{ runSelfTest() }catch(e){ toast(e.message); console.error(e); }
+}
+</script>
+</body>
+</html>
