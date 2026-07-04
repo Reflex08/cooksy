@@ -112,11 +112,13 @@ h1{font-size:26px;font-weight:800;margin:10px 0 4px;letter-spacing:-.5px}
 .quizQ{font-size:24px;font-weight:800;text-align:center;margin:6px 0 22px;letter-spacing:-.5px}
 .quizChips{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-bottom:26px}
 .qChip{
-  padding:14px 20px;border-radius:99px;background:var(--card);box-shadow:var(--shadow);
-  font-size:16px;font-weight:700;transition:transform .15s;
+  padding:12px 18px;border-radius:22px;background:var(--card);box-shadow:var(--shadow);
+  font-size:16px;font-weight:700;transition:transform .15s;text-align:center;
 }
+.qChip small{display:block;font-size:11px;font-weight:600;color:var(--sub);margin-top:3px;letter-spacing:0}
 .qChip:active{transform:scale(.92)}
 .qChip.sel{background:var(--grad);color:#fff;animation:pop .3s ease}
+.qChip.sel small{color:rgba(255,255,255,.85)}
 .quizNav{display:flex;gap:10px;margin-top:8px}
 .quizNav .bigBtn{padding:16px}
 .quizLabel{font-size:13px;font-weight:800;color:var(--sub);text-transform:uppercase;
@@ -406,6 +408,7 @@ function confetti(){
 
 const LOAD_MSGS = {
   recipes: ['Chopping ideas…','Tasting combos…','Raiding your fridge…','Whisking it together…'],
+  detail: ['Writing the recipe…','Measuring things out…','Plating up the steps…'],
   scan: ['Peeking in your fridge…','Spotting the goods…','Counting apples…'],
   usage: ['Doing the dishes…','Checking what’s left…','Wiping the counter…']
 };
@@ -439,11 +442,15 @@ function lookupItem(rawName){
 function qtyLabel(q){
   if(!q) return '';
   if(q.type === 'count') return '×' + q.n;
+  if(q.type === 'text') return q.label;
   return { full:'Full', half:'Half', low:'Low' }[q.v] || q.v;
 }
 function isLow(q){
   return q && ((q.type === 'count' && q.n <= 1) || (q.type === 'level' && q.v === 'low'));
 }
+// pourable/spoonable things get Full/Half/Low, not ×1 ×2
+const POURABLE_RE = /(juice|milk|oil|sauce|cream|broth|stock|syrup|honey|vinegar|dressing|yogurt|butter|jam|jelly|ketchup|mayo|mustard|salsa|hummus|wine|beer|soda|water|paste|spread|dip|puree)/;
+const isPourable = name => POURABLE_RE.test(String(name).toLowerCase());
 
 function addToFridge(name, qty, emoji, category){
   const info = lookupItem(name);
@@ -462,7 +469,9 @@ function addToFridge(name, qty, emoji, category){
 }
 
 /* ================= claude api ================= */
-async function claude(content, system, maxTokens){
+const MODEL_SMART = 'claude-sonnet-5';        // recipe ideas + full recipes
+const MODEL_FAST  = 'claude-haiku-4-5-20251001'; // photo scan + usage math — much faster
+async function claude(content, system, maxTokens, model){
   if(!settings.apiKey) throw new Error('NO_KEY');
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
@@ -473,7 +482,7 @@ async function claude(content, system, maxTokens){
       'anthropic-dangerous-direct-browser-access':'true'
     },
     body: JSON.stringify({
-      model:'claude-sonnet-5',
+      model: model || MODEL_SMART,
       max_tokens: maxTokens || 3000,
       system: system || 'You are a helpful cooking assistant. Respond with ONLY valid JSON. No markdown fences, no commentary.',
       messages:[{ role:'user', content }]
@@ -495,13 +504,13 @@ function parseJSONLoose(t){
   return JSON.parse(t.slice(s, e+1));
 }
 
-async function askJSON(content, system){
+async function askJSON(content, system, maxTokens, model){
   try{
-    return parseJSONLoose(await claude(content, system));
+    return parseJSONLoose(await claude(content, system, maxTokens, model));
   }catch(err){
     if(err.message === 'NO_KEY' || /^API error/.test(err.message)) throw err;
     // one retry on malformed JSON
-    return parseJSONLoose(await claude(content, system));
+    return parseJSONLoose(await claude(content, system, maxTokens, model));
   }
 }
 
@@ -559,31 +568,51 @@ function renderFridge(){
 
 /* ---- add item ---- */
 let addQty = { type:'count', n:1 };
+let addQtyTouched = false;
 function addSheet(){
   addQty = { type:'count', n:1 };
+  addQtyTouched = false;
   openSheet(`
     <div class="sheetT">Add to fridge</div>
-    <input class="field" id="addName" placeholder="e.g. apples, milk, chicken…" autocomplete="off" oninput="renderSuggest()">
+    <input class="field" id="addName" placeholder="e.g. apples, milk, chicken…" autocomplete="off" oninput="renderSuggest();renderQtyRow()">
     <div class="suggest" id="suggestBox"></div>
     <div class="quizLabel" style="text-align:left;margin:4px 0 8px">How much?</div>
     <div class="qtyRow" id="qtyRow"></div>
+    <input class="field" id="customQty" placeholder="e.g. juice of 2 lemons, 500g, a splash…" style="display:none" oninput="addQty={type:'text',label:this.value.trim()};addQtyTouched=true">
     <button class="sheetBtn" onclick="commitAdd()">Add it 🎉</button>
   `);
   renderQtyRow();
   renderSuggest();
   setTimeout(() => { const f = $('#addName'); if(f) f.focus(); }, 350);
 }
-const QTY_OPTS = [
-  {type:'count',n:1},{type:'count',n:2},{type:'count',n:3},{type:'count',n:4},{type:'count',n:6},
-  {type:'level',v:'full'},{type:'level',v:'half'},{type:'level',v:'low'}
-];
+const COUNT_OPTS = [{type:'count',n:1},{type:'count',n:2},{type:'count',n:3},{type:'count',n:4},{type:'count',n:6}];
+const LEVEL_OPTS = [{type:'level',v:'full'},{type:'level',v:'half'},{type:'level',v:'low'}];
+let addOpts = [];
 function renderQtyRow(){
   const box = $('#qtyRow'); if(!box) return;
-  box.innerHTML = QTY_OPTS.map((q,i) =>
-    `<button class="qtyOpt ${JSON.stringify(q)===JSON.stringify(addQty)?'sel':''}" onclick="setAddQty(${i})">${qtyLabel(q)}</button>`
-  ).join('');
+  const nm = ($('#addName') ? $('#addName').value : '').trim();
+  const pour = isPourable(nm);
+  addOpts = pour ? [...LEVEL_OPTS, ...COUNT_OPTS] : [...COUNT_OPTS, ...LEVEL_OPTS];
+  // sensible default follows the item type until user picks one
+  if(!addQtyTouched && addQty.type !== 'text'){
+    addQty = pour ? {type:'level',v:'full'} : {type:'count',n:1};
+  }
+  const customOn = addQty.type === 'text';
+  box.innerHTML = addOpts.map((q,i) =>
+    `<button class="qtyOpt ${!customOn && JSON.stringify(q)===JSON.stringify(addQty)?'sel':''}" onclick="setAddQty(${i})">${qtyLabel(q)}</button>`
+  ).join('') + `<button class="qtyOpt ${customOn?'sel':''}" onclick="toggleCustomQty()">✏️ Custom</button>`;
 }
-function setAddQty(i){ addQty = QTY_OPTS[i]; renderQtyRow(); }
+function setAddQty(i){
+  addQty = addOpts[i]; addQtyTouched = true;
+  const c = $('#customQty'); if(c) c.style.display = 'none';
+  renderQtyRow();
+}
+function toggleCustomQty(){
+  const c = $('#customQty'); if(!c) return;
+  c.style.display = 'block';
+  addQty = { type:'text', label: c.value.trim() }; addQtyTouched = true;
+  renderQtyRow(); c.focus();
+}
 function renderSuggest(){
   const box = $('#suggestBox'); if(!box) return;
   const q = ($('#addName') ? $('#addName').value : '').toLowerCase().trim();
@@ -605,7 +634,9 @@ function pickSuggest(n){ $('#addName').value = n; renderSuggest(); }
 function commitAdd(){
   const nm = ($('#addName').value || '').trim();
   if(!nm){ toast('Type an item first'); return; }
+  if(addQty.type === 'text' && !addQty.label){ toast('Type the amount (or pick a chip)'); return; }
   addToFridge(nm, JSON.parse(JSON.stringify(addQty)));
+  addQtyTouched = false;
   toast(lookupItem(nm).emoji + ' ' + cap(lookupItem(nm).name) + ' added!');
   $('#addName').value = '';
   renderSuggest(); renderFridge();
@@ -621,25 +652,33 @@ function renderEditSheet(){
   const it = fridge.find(f => f.id === editId);
   if(!it){ closeSheet(); return; }
   const days = Math.floor((Date.now() - it.addedAt) / 864e5);
+  const mode = it.qty.type;
   let qtyCtl;
-  if(it.qty.type === 'count'){
+  if(mode === 'count'){
     qtyCtl = `
       <div class="stepper">
         <button class="stepBtn" onclick="bumpQty(-1)">−</button>
         <span class="stepVal">×${it.qty.n}</span>
         <button class="stepBtn" onclick="bumpQty(1)">＋</button>
-      </div>
-      <button class="linkBtn" onclick="switchQtyType()">Track as level (full / half / low) instead</button>`;
-  } else {
+      </div>`;
+  } else if(mode === 'level'){
     qtyCtl = `
       <div class="segRow">
         ${['full','half','low'].map(v => `<button class="seg ${it.qty.v===v?'sel':''}" onclick="setLevel('${v}')">${cap(v)}</button>`).join('')}
-      </div>
-      <button class="linkBtn" onclick="switchQtyType()">Track as count (×1, ×2…) instead</button>`;
+      </div>`;
+  } else {
+    qtyCtl = `
+      <input class="field" id="editCustom" placeholder="e.g. juice of 2 lemons, 500g…" value="${esc(it.qty.label || '')}"
+        oninput="setCustomLabel(this.value)">`;
   }
   openSheet(`
     <div class="sheetT">${it.emoji} ${esc(cap(it.name))}</div>
     <p class="hint">Added ${days === 0 ? 'today' : days + ' day' + (days>1?'s':'') + ' ago'}</p>
+    <div class="segRow">
+      <button class="seg ${mode==='count'?'sel':''}" onclick="switchQtyMode('count')">Count</button>
+      <button class="seg ${mode==='level'?'sel':''}" onclick="switchQtyMode('level')">Level</button>
+      <button class="seg ${mode==='text'?'sel':''}" onclick="switchQtyMode('text')">✏️ Custom</button>
+    </div>
     ${qtyCtl}
     <button class="sheetBtn" onclick="closeSheet(); renderFridge()">Done</button>
     <button class="sheetBtn danger" onclick="deleteItem()" style="margin-top:8px">🗑 Remove from fridge</button>
@@ -655,10 +694,16 @@ function setLevel(v){
   it.qty = { type:'level', v };
   saveFridge(); renderEditSheet();
 }
-function switchQtyType(){
+function setCustomLabel(v){
   const it = fridge.find(f => f.id === editId); if(!it) return;
-  it.qty = it.qty.type === 'count' ? { type:'level', v:'full' } : { type:'count', n:1 };
+  it.qty = { type:'text', label: v.trim() };
+  saveFridge(); // no re-render — user is typing
+}
+function switchQtyMode(m){
+  const it = fridge.find(f => f.id === editId); if(!it || it.qty.type === m) return;
+  it.qty = m === 'count' ? { type:'count', n:1 } : m === 'level' ? { type:'level', v:'full' } : { type:'text', label: qtyLabel(it.qty) };
   saveFridge(); renderEditSheet();
+  if(m === 'text') setTimeout(() => { const f = $('#editCustom'); if(f){ f.focus(); f.select(); } }, 100);
 }
 function deleteItem(){
   const it = fridge.find(f => f.id === editId);
@@ -686,7 +731,7 @@ $('#scanInput').addEventListener('change', async e => {
 Return ONLY JSON:
 {"items":[{"name":"lowercase singular name","emoji":"one emoji","category":"produce|dairy|meat|pantry|other","qty":{"type":"count","n":2} or {"type":"level","v":"full|half|low"}}]}
 Be conservative — skip anything you cannot identify with confidence. Skip non-food.` }
-    ]);
+    ], undefined, 1500, MODEL_FAST);
     loading(false);
     const items = (res.items || []).filter(i => i && i.name);
     if(!items.length){ toast('Couldn’t spot anything — try typing instead'); return; }
@@ -771,12 +816,33 @@ function renderCookHome(){
 
 const QUIZ_STEPS = [
   { key:'taste',   q:'What taste are you craving?', multi:true,
-    opts:[['🍬','sweet'],['🧂','salty'],['🍋','sour'],['🌶️','spicy'],['🍖','savory'],['🧀','cheesy']] },
+    opts:[
+      ['🍬','sweet','pancakes · crumble · french toast'],
+      ['🧂','salty','fries · halloumi · bacon anything'],
+      ['🍋','sour','lemon chicken · pickled salad'],
+      ['🌶️','spicy','curry · arrabbiata · chili'],
+      ['🍖','savory','roast chicken · stew · pasta'],
+      ['🧀','cheesy','mac & cheese · quesadilla']
+    ] },
   { key:'texture', q:'What texture sounds good?', multi:true,
-    opts:[['🥨','crispy'],['🍦','creamy'],['🥯','chewy'],['☁️','soft'],['🍜','soupy'],['🥗','fresh']] },
+    opts:[
+      ['🥨','crispy','schnitzel · roast potatoes'],
+      ['🍦','creamy','alfredo · risotto · soup'],
+      ['🥯','chewy','noodles · bagels · brownies'],
+      ['☁️','soft','omelette · mash · pancakes'],
+      ['🍜','soupy','ramen · chowder · broth'],
+      ['🥗','fresh','salad · salsa · spring rolls']
+    ] },
   { key:'effort',  q:'How much effort today?', multi:false,
-    opts:[['⚡','quick (under 20 min)'],['🍳','normal (20-45 min)'],['👨‍🍳','a project (45+ min)']],
-    extra:{ key:'vibe', label:'And how hungry?', opts:[['🥗','something light'],['🍲','something hearty']] } }
+    opts:[
+      ['⚡','quick (under 20 min)','omelette · quesadilla · stir-fry'],
+      ['🍳','normal (20-45 min)','baked salmon · curry · pasta'],
+      ['👨‍🍳','a project (45+ min)','lasagna · fresh bread · roast']
+    ],
+    extra:{ key:'vibe', label:'And how hungry?', opts:[
+      ['🥗','something light','salad · soup · snack plate'],
+      ['🍲','something hearty','pasta bake · stew · full plate']
+    ] } }
 ];
 
 function startQuiz(){
@@ -788,15 +854,15 @@ function startQuiz(){
 function renderQuiz(){
   const st = QUIZ_STEPS[quiz.step];
   const v = $('#view-cook');
-  let chips = st.opts.map(([em, val]) => {
+  let chips = st.opts.map(([em, val, ex]) => {
     const sel = st.multi ? quiz[st.key].has(val) : quiz[st.key] === val;
-    return `<button class="qChip ${sel?'sel':''}" onclick="quizPick('${st.key}','${val}',${st.multi})">${em} ${esc(val)}</button>`;
+    return `<button class="qChip ${sel?'sel':''}" onclick="quizPick('${st.key}','${val}',${st.multi})">${em} ${esc(val)}<small>${esc(ex || '')}</small></button>`;
   }).join('');
   let extra = '';
   if(st.extra){
     extra = `<div class="quizLabel">${st.extra.label}</div><div class="quizChips">` +
-      st.extra.opts.map(([em, val]) =>
-        `<button class="qChip ${quiz[st.extra.key]===val?'sel':''}" onclick="quizPick('${st.extra.key}','${val}',false)">${em} ${esc(val)}</button>`
+      st.extra.opts.map(([em, val, ex]) =>
+        `<button class="qChip ${quiz[st.extra.key]===val?'sel':''}" onclick="quizPick('${st.extra.key}','${val}',false)">${em} ${esc(val)}<small>${esc(ex || '')}</small></button>`
       ).join('') + `</div>`;
   }
   const last = quiz.step === QUIZ_STEPS.length - 1;
@@ -839,6 +905,7 @@ async function findRecipes(){
   const recent = cooked.slice(0,5).map(c => c.recipe.name).join(', ');
   loading(true, 'recipes');
   try{
+    // fast pass: just 3 ideas, no steps/amounts — full recipe fetched on tap
     const res = await askJSON(
 `My fridge inventory with rough quantities:
 ${fridgeStr}
@@ -847,15 +914,15 @@ Pantry staples I always have (assume available): ${settings.staples.join(', ')}
 My cravings right now: ${cravingStr}
 ${recent ? 'Recently cooked (do not repeat these): ' + recent : ''}
 
-Give me exactly 3 different realistic home recipes I can cook right now, primarily using my fridge items plus staples. Respect my quantities (do not use more of something than I have). Each recipe may include AT MOST 2 ingredients I would need to buy — mark those with status "buy". Match the cravings.
+Suggest exactly 3 different realistic dishes I can cook right now, primarily from my fridge items plus staples. Respect my quantities. Each dish may need AT MOST 2 ingredients I would have to buy. Match the cravings. Be concise.
 
 Return ONLY JSON:
-{"recipes":[{"name":"...","emoji":"one emoji","minutes":25,"description":"max 90 chars, appetizing","ingredients":[{"item":"...","amount":"e.g. 2, or 1 cup","status":"have|staple|buy"}],"steps":["step 1","step 2"]}]}`,
-      'You are a creative but practical home-cooking chef. Respond with ONLY valid JSON. No markdown, no commentary.');
+{"recipes":[{"name":"...","emoji":"one emoji","minutes":25,"description":"max 80 chars, appetizing","uses":["fridge items it uses"],"buy":["items to buy, max 2, often empty"]}]}`,
+      'You are a creative but practical home-cooking chef. Respond with ONLY valid JSON. No markdown, no commentary.', 800);
     loading(false);
-    const recipes = (res.recipes || []).filter(r => r && r.name && Array.isArray(r.ingredients) && Array.isArray(r.steps)).slice(0,3);
+    const recipes = (res.recipes || []).filter(r => r && r.name).slice(0,3);
     if(!recipes.length){ toast('Got a weird answer — try again'); return; }
-    lastRecipes = { recipes, at: Date.now() };
+    lastRecipes = { recipes, cravings: cravingStr, at: Date.now() };
     store.set('lastRecipes', lastRecipes);
     renderResults();
   }catch(err){
@@ -865,8 +932,9 @@ Return ONLY JSON:
 
 function recipeCardsHtml(recipes){
   return recipes.map((r, i) => {
-    const uses = r.ingredients.filter(g => g.status === 'have').slice(0,4);
-    const buys = r.ingredients.filter(g => g.status === 'buy');
+    // new fast format has uses/buy arrays; old stored results have full ingredients
+    const uses = (r.uses || (r.ingredients || []).filter(g => g.status === 'have').map(g => g.item)).slice(0,4);
+    const buys = r.buy || (r.ingredients || []).filter(g => g.status === 'buy').map(g => g.item);
     return `
     <div class="rCard" style="animation-delay:${i*90}ms" onclick="openRecipe(${i})">
       <div class="rEmoji">${esc(r.emoji || '🍽️')}</div>
@@ -875,8 +943,8 @@ function recipeCardsHtml(recipes){
         <p class="rDesc">${esc(r.description || '')}</p>
         <div class="rMeta">
           <span class="tag time">⏱ ${esc(String(r.minutes || '?'))} min</span>
-          ${uses.map(g => `<span class="tag use">${esc(g.item)}</span>`).join('')}
-          ${buys.map(g => `<span class="tag buy">🛒 ${esc(g.item)}</span>`).join('')}
+          ${uses.map(g => `<span class="tag use">${esc(g)}</span>`).join('')}
+          ${buys.map(g => `<span class="tag buy">🛒 ${esc(g)}</span>`).join('')}
         </div>
       </div>
     </div>`;
@@ -893,9 +961,32 @@ function renderResults(){
 }
 
 let detailReturn = 'results';
-function openRecipe(i){
+async function openRecipe(i){
   detailReturn = 'results';
-  renderRecipeDetail(lastRecipes.recipes[i]);
+  const r = lastRecipes.recipes[i];
+  if(!Array.isArray(r.ingredients) || !Array.isArray(r.steps)){
+    loading(true, 'detail');
+    try{
+      const res = await askJSON(
+`Write the full recipe for: "${r.name}" — ${r.description || ''} (~${r.minutes || 30} min)
+
+My fridge: ${fridge.map(f => f.name + ' (' + qtyLabel(f.qty) + ')').join(', ')}
+Staples I have: ${settings.staples.join(', ')}
+${lastRecipes.cravings ? 'It was suggested for cravings: ' + lastRecipes.cravings : ''}
+
+Scale to what I have, 1-2 servings. Max 8 concise steps.
+Return ONLY JSON:
+{"ingredients":[{"item":"...","amount":"e.g. 2, 1 cup, a splash","status":"have|staple|buy"}],"steps":["..."]}`,
+        'You are a practical home-cooking chef. Respond with ONLY valid JSON. No markdown, no commentary.', 1200);
+      if(!Array.isArray(res.ingredients) || !Array.isArray(res.steps)) throw new Error('Got a weird answer — try again');
+      r.ingredients = res.ingredients; r.steps = res.steps;
+      store.set('lastRecipes', lastRecipes);
+    }catch(err){
+      loading(false); apiErrorToast(err); return;
+    }
+    loading(false);
+  }
+  renderRecipeDetail(r);
 }
 let currentRecipe = null;
 function renderRecipeDetail(r){
@@ -942,9 +1033,9 @@ My fridge BEFORE cooking:
 ${fridgeStr}
 
 Estimate what remains of my fridge items after cooking this once. Return ONLY JSON:
-{"updates":[{"name":"exact fridge item name from my list","after":null or {"type":"count","n":1} or {"type":"level","v":"full|half|low"}}]}
-"after": null means completely used up. Only include fridge items whose amount changed. Do not include staples.`,
-      'You estimate ingredient usage. Respond with ONLY valid JSON.');
+{"updates":[{"name":"exact fridge item name from my list","after":null or {"type":"count","n":1} or {"type":"level","v":"full|half|low"} or {"type":"text","label":"short e.g. 'a little left'"}}]}
+"after": null means completely used up. If the item's current amount is a text description, return "after" as type "text". Only include fridge items whose amount changed. Do not include staples.`,
+      'You estimate ingredient usage. Respond with ONLY valid JSON.', 1000, MODEL_FAST);
     loading(false);
     const updates = (res.updates || []).map(u => {
       const item = fridge.find(f => f.name === String(u.name || '').toLowerCase().trim())
@@ -1139,6 +1230,8 @@ function runSelfTest(){
   A(parseJSONLoose('noise {"a":{"b":2}} trailing').a.b === 2, 'loose extract');
   A(qtyLabel({type:'count',n:3}) === '×3', 'qty count label');
   A(qtyLabel({type:'level',v:'half'}) === 'Half', 'qty level label');
+  A(qtyLabel({type:'text',label:'juice of 2'}) === 'juice of 2', 'qty text label');
+  A(isPourable('lemon juice') && isPourable('Milk') && !isPourable('apple'), 'pourable detect');
   A(isLow({type:'count',n:1}) && isLow({type:'level',v:'low'}) && !isLow({type:'count',n:2}), 'isLow');
   A(lookupItem('Apples').name === 'apple' && lookupItem('Apples').emoji === '🍎', 'singularize lookup');
   const before = fridge.length;
