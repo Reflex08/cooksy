@@ -329,6 +329,7 @@ textarea.field{resize:vertical;min-height:80px}
 
 <script>
 'use strict';
+const APP_VERSION = 7;
 /* ================= data ================= */
 const store = {
   get(k, d){ try{ const v = JSON.parse(localStorage.getItem('cooksy.'+k)); return v === null || v === undefined ? d : v }catch(e){ return d } },
@@ -1285,6 +1286,7 @@ function settingsSheet(){
       <button class="sheetBtn ghost" style="margin:0" onclick="$('#importInput').click()">⬆️ Import</button>
     </div>
     <button class="sheetBtn danger" onclick="clearAll()" style="margin-top:8px">🗑 Erase everything</button>
+    <p class="hint" style="text-align:center;margin-top:12px">Cooksy v${APP_VERSION}</p>
   `);
 }
 function saveSettingsSheet(){
