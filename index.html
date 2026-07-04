@@ -137,6 +137,8 @@ h1{font-size:26px;font-weight:800;margin:10px 0 4px;letter-spacing:-.5px}
   position:relative;overflow:hidden;
 }
 .rEmoji img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+@keyframes pulseBg{0%,100%{background-color:#FFF1E6}50%{background-color:#FFE3CB}}
+.rEmoji,.heroImgWrap,.hThumb{animation:pulseBg 1.6s ease-in-out infinite}
 .heroImgWrap{
   position:relative;width:100%;height:210px;border-radius:24px;overflow:hidden;
   background:#FFF1E6;display:flex;align-items:center;justify-content:center;
@@ -329,7 +331,7 @@ textarea.field{resize:vertical;min-height:80px}
 
 <script>
 'use strict';
-const APP_VERSION = 7;
+const APP_VERSION = 8;
 /* ================= data ================= */
 const store = {
   get(k, d){ try{ const v = JSON.parse(localStorage.getItem('cooksy.'+k)); return v === null || v === undefined ? d : v }catch(e){ return d } },
@@ -385,12 +387,14 @@ const SEED = {
 
 let fridge   = store.get('fridge', []);
 let cooked   = store.get('cooked', []);
+let saved    = store.get('saved', []);
 let known    = store.get('known', {});
 let settings = store.get('settings', { apiKey:'', staples: DEFAULT_STAPLES.slice() });
 let lastRecipes = store.get('lastRecipes', null);
 
 const saveFridge = () => store.set('fridge', fridge);
 const saveCooked = () => store.set('cooked', cooked);
+const saveSaved  = () => store.set('saved', saved);
 const saveKnown  = () => store.set('known', known);
 const saveSettings = () => store.set('settings', settings);
 
@@ -539,14 +543,46 @@ async function askJSON(content, system, maxTokens, model){
 }
 
 /* ---- recipe images ---- */
-// free AI images, no key: deterministic seed = same photo for same dish forever
-function foodImgUrl(r, size){
+// free AI images, no key: deterministic seed = same photo for same dish forever.
+// ONE url per recipe (cards + hero share it) so it generates once and is cached on tap.
+function foodImgUrl(r){
   const seed = [...String(r.name)].reduce((a, c) => a + c.charCodeAt(0), 7);
   const prompt = encodeURIComponent(
-    `professional food photography of ${r.name}, appetizing, plated, natural light, shallow depth of field`);
-  return `https://image.pollinations.ai/prompt/${prompt}?width=${size}&height=${size}&nologo=true&seed=${seed}`;
+    `delicious ${r.name}, ${r.description || 'home cooked'}, professional food magazine photography, appetizing, beautifully plated, natural light, high detail`);
+  return `https://image.pollinations.ai/prompt/${prompt}?width=640&height=640&nologo=true&enhance=true&seed=${seed}`;
 }
-const recipeImg = (r, size) => r.img || foodImgUrl(r, size);
+const recipeImg = r => r.img || foodImgUrl(r);
+// pollinations allows ONE generation at a time per IP — parallel loads got 429'd
+// and looked "half generated". Strict client-side queue: one img loads at a time,
+// failures retry twice with backoff, the visible recipe page jumps the queue.
+const IMGQ = [];
+let imgBusy = false;
+function scanImgs(priority){
+  document.querySelectorAll('img[data-src]:not([data-q])').forEach(el => {
+    el.setAttribute('data-q', '1');
+    priority ? IMGQ.unshift(el) : IMGQ.push(el);
+  });
+  pumpImgQ();
+}
+function pumpImgQ(){
+  if(imgBusy) return;
+  let el;
+  while((el = IMGQ.shift())){ if(document.contains(el)) break; }
+  if(!el) return;
+  imgBusy = true;
+  const next = () => { imgBusy = false; setTimeout(pumpImgQ, 400); };
+  el.onload = next;
+  el.onerror = () => {
+    const n = +(el.dataset.r || 0);
+    el.removeAttribute('src');
+    if(n < 2){
+      el.dataset.r = n + 1;
+      setTimeout(() => { IMGQ.push(el); pumpImgQ(); }, 2000 * (n + 1));
+    } else el.remove();
+    next();
+  };
+  el.src = el.dataset.src + (el.dataset.r ? '&retry=' + el.dataset.r : '');
+}
 
 // optional: Nano Banana Pro hero image via user's Google AI key
 async function nanoBanana(r){
@@ -880,6 +916,7 @@ function renderCookHome(){
     html += `<div class="sectionT">Last ideas</div>` + recipeCardsHtml(lastRecipes.recipes);
   }
   v.innerHTML = html;
+  scanImgs();
 }
 
 const QUIZ_STEPS = [
@@ -1031,7 +1068,7 @@ function recipeCardsHtml(recipes){
     const buys = r.buy || (r.ingredients || []).filter(g => g.status === 'buy').map(g => g.item);
     return `
     <div class="rCard" style="animation-delay:${i*90}ms" onclick="openRecipe(${i})">
-      <div class="rEmoji">${esc(r.emoji || '🍽️')}<img src="${esc(recipeImg(r, 256))}" alt="" loading="lazy" onerror="this.remove()"></div>
+      <div class="rEmoji">${esc(r.emoji || '🍽️')}<img data-src="${esc(recipeImg(r))}" alt=""></div>
       <div class="rBody">
         <div class="rName">${esc(r.name)}</div>
         <p class="rDesc">${esc(r.description || '')}</p>
@@ -1052,6 +1089,7 @@ function renderResults(){
     <h1>Fresh ideas 🍽️</h1>
     <p class="sub">Tap one to see the full recipe.</p>
     ${recipeCardsHtml(lastRecipes.recipes)}`;
+  scanImgs();
 }
 
 let detailReturn = 'results';
@@ -1092,11 +1130,12 @@ function renderRecipeDetail(r){
     <button class="backBtn" onclick="${detailReturn === 'history' ? "nav('history')" : (lastRecipes ? 'renderResults()' : 'renderCookHome()')}">← Back</button>
     <div class="heroImgWrap">
       <span class="fallbackEm">${esc(r.emoji || '🍽️')}</span>
-      <img id="heroImg" src="${esc(recipeImg(r, 768))}" alt="" onerror="this.remove()">
+      <img id="heroImg" data-src="${esc(recipeImg(r))}" alt="">
     </div>
     <div class="detailHero" style="margin-top:0">
       <h2>${esc(r.name)}</h2>
       <span class="tag time" style="font-size:13px;padding:5px 13px">⏱ ${esc(String(r.minutes || '?'))} min</span>
+      <button class="tag buy" id="saveBtn" onclick="toggleSave()" style="font-size:13px;padding:5px 13px;margin-left:6px">${isSaved(r) ? '♥ Saved' : '♡ Save'}</button>
     </div>
     <div class="sectionT">Ingredients</div>
     <div class="ingList">
@@ -1112,6 +1151,7 @@ function renderRecipeDetail(r){
     ${r.steps.map((s, i) => `<div class="stepRow"><span class="stepNum">${i+1}</span><span>${esc(s)}</span></div>`).join('')}
     <button class="madeBtn" onclick="madeIt()">✅ I made it!</button>`;
   window.scrollTo({ top: 0 });
+  scanImgs(true); // hero jumps the image queue — user is looking at it
   upgradeHeroImg(r);
 }
 // swap in a Nano Banana Pro shot when a Google key is set (non-blocking)
@@ -1131,6 +1171,29 @@ async function upgradeHeroImg(r){
       toast('Google key has no image quota (needs billing) — using free photos');
     }
   }
+}
+
+/* ---- save recipe (favorites) ---- */
+function isSaved(r){ return saved.some(s => s.recipe.name === r.name); }
+function toggleSave(){
+  const r = currentRecipe; if(!r) return;
+  if(isSaved(r)){
+    saved = saved.filter(s => s.recipe.name !== r.name);
+    toast('Removed from saved');
+  } else {
+    const rec = { ...r };
+    if(rec.img && rec.img.startsWith('data:')) delete rec.img;
+    saved.unshift({ id: uid(), recipe: rec, savedAt: Date.now() });
+    toast('Saved ♥ — find it in History');
+  }
+  saveSaved();
+  const b = $('#saveBtn'); if(b) b.textContent = isSaved(r) ? '♥ Saved' : '♡ Save';
+}
+function openSaved(id){
+  const s = saved.find(x => x.id === id);
+  if(!s) return;
+  detailReturn = 'history';
+  renderRecipeDetail(s.recipe);
 }
 
 /* ---- I made it → usage estimate ---- */
@@ -1245,13 +1308,25 @@ function skipUsage(){
 /* ================= history view ================= */
 function renderHistory(){
   const v = $('#view-history');
-  let html = `<h1>Cooked before</h1><p class="sub">${cooked.length ? 'Tap “again” to re-open a recipe.' : ''}</p>`;
-  if(!cooked.length){
-    html += `<div class="empty"><span class="big">📖</span>Nothing cooked yet.<br>Your kitchen victories will show up here!</div>`;
-  } else {
-    html += cooked.map((c, i) => `
+  let html = `<h1>Your recipes</h1><p class="sub">${(saved.length || cooked.length) ? 'Saved favorites and everything you’ve cooked.' : ''}</p>`;
+  if(saved.length){
+    html += `<div class="sectionT">♥ Saved</div>` + saved.map((s, i) => `
+      <div class="hRow" style="animation-delay:${Math.min(i,8)*60}ms" onclick="openSaved('${s.id}')">
+        <span class="hThumb">${esc(s.recipe.emoji || '🍽️')}<img data-src="${esc(recipeImg(s.recipe))}" alt=""></span>
+        <div>
+          <div class="hName">${esc(s.recipe.name)}</div>
+          <div class="hDate">⏱ ${esc(String(s.recipe.minutes || '?'))} min</div>
+        </div>
+        <button class="againBtn">Open 🍳</button>
+      </div>`).join('');
+  }
+  if(!saved.length && !cooked.length){
+    html += `<div class="empty"><span class="big">📖</span>Nothing here yet.<br>Save recipes with ♡ or cook something!</div>`;
+  }
+  if(cooked.length){
+    html += `<div class="sectionT">Cooked before</div>` + cooked.map((c, i) => `
       <div class="hRow" style="animation-delay:${Math.min(i,8)*60}ms">
-        <span class="hThumb">${esc(c.recipe.emoji || '🍽️')}<img src="${esc(recipeImg(c.recipe, 128))}" alt="" loading="lazy" onerror="this.remove()"></span>
+        <span class="hThumb">${esc(c.recipe.emoji || '🍽️')}<img data-src="${esc(recipeImg(c.recipe))}" alt=""></span>
         <div>
           <div class="hName">${esc(c.recipe.name)}</div>
           <div class="hDate">${new Date(c.cookedAt).toLocaleDateString(undefined,{month:'short',day:'numeric'})} · ⏱ ${esc(String(c.recipe.minutes || '?'))} min</div>
@@ -1260,6 +1335,7 @@ function renderHistory(){
       </div>`).join('');
   }
   v.innerHTML = html;
+  scanImgs();
 }
 function makeAgain(id){
   const c = cooked.find(x => x.id === id);
@@ -1299,7 +1375,7 @@ function saveSettingsSheet(){
   if(currentView === 'cook') renderCookHome();
 }
 function exportData(){
-  const data = { fridge, cooked, known, staples: settings.staples, exportedAt: new Date().toISOString() };
+  const data = { fridge, cooked, saved, known, staples: settings.staples, exportedAt: new Date().toISOString() };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -1318,9 +1394,10 @@ $('#importInput').addEventListener('change', e => {
       const d = JSON.parse(rd.result);
       if(Array.isArray(d.fridge)) fridge = d.fridge;
       if(Array.isArray(d.cooked)) cooked = d.cooked;
+      if(Array.isArray(d.saved)) saved = d.saved;
       if(d.known && typeof d.known === 'object') known = d.known;
       if(Array.isArray(d.staples)) settings.staples = d.staples;
-      saveFridge(); saveCooked(); saveKnown(); saveSettings();
+      saveFridge(); saveCooked(); saveSaved(); saveKnown(); saveSettings();
       closeSheet(); nav('fridge');
       toast('Backup restored 🎉');
     }catch(err){ toast('That file doesn’t look like a Cooksy backup'); }
@@ -1331,6 +1408,7 @@ function clearAll(){
   if(!confirm('Erase fridge, history and settings on this device?')) return;
   localStorage.removeItem('cooksy.fridge');
   localStorage.removeItem('cooksy.cooked');
+  localStorage.removeItem('cooksy.saved');
   localStorage.removeItem('cooksy.known');
   localStorage.removeItem('cooksy.settings');
   localStorage.removeItem('cooksy.lastRecipes');
