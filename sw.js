@@ -1,4 +1,5 @@
-const CACHE = 'cooksy-v12';
+const CACHE = 'cooksy-v13';
+const KEEP = [CACHE, 'cooksy-imgs']; // cooksy-imgs holds paid generated images — never wipe
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -8,7 +9,7 @@ self.addEventListener('install', e => {
 
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))
+    caches.keys().then(ks => Promise.all(ks.filter(k => !KEEP.includes(k)).map(k => caches.delete(k))))
   );
   self.clients.claim();
 });

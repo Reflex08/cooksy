@@ -336,7 +336,7 @@ textarea.field{resize:vertical;min-height:80px}
 
 <script>
 'use strict';
-const APP_VERSION = 12;
+const APP_VERSION = 13;
 /* ================= data ================= */
 const store = {
   get(k, d){ try{ const v = JSON.parse(localStorage.getItem('cooksy.'+k)); return v === null || v === undefined ? d : v }catch(e){ return d } },
@@ -575,34 +575,79 @@ function foodImgUrl(r){
     `delicious ${r.name}, ${r.description || 'home cooked'}, professional food magazine photography, appetizing, beautifully plated, natural light, high detail`);
   return `https://image.pollinations.ai/prompt/${prompt}?width=640&height=640&nologo=true&enhance=true&seed=${seed}`;
 }
-const NANO = new Map(); // session cache of Nano Banana heroes — never persisted (localStorage quota)
-// real photos beat slow AI generation: Openverse search is keyless, CORS-open, <1s
-const PHOTO = new Map(); // name -> thumbnail url ('' = searched, nothing found)
-async function findPhoto(r){
-  if(typeof r.photo === 'string') return r.photo || null;
-  if(PHOTO.has(r.name)){ r.photo = PHOTO.get(r.name); return r.photo || null; }
-  const words = String(r.name).toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(Boolean);
-  const queries = [...new Set([r.img_query, r.name, words.slice(-2).join(' ')].filter(Boolean))];
-  let found = '';
-  for(const q of queries){
-    try{
-      const res = await fetch('https://api.openverse.org/v1/images/?q=' + encodeURIComponent(q + ' food') + '&page_size=5');
-      if(!res.ok) break;
-      const d = await res.json();
-      const hit = (d.results || []).find(x => x.thumbnail);
-      if(hit){ found = hit.thumbnail; break; }
-    }catch(e){ break; }
-  }
-  r.photo = found;
-  PHOTO.set(r.name, found);
-  return found || null;
+const NANO = new Map(); // recipe name -> objectURL of a generated image (this session)
+// generated images persist in the Cache API — big quota, survives restarts, unlike localStorage
+async function imgCacheGet(name){
+  try{
+    const c = await caches.open('cooksy-imgs');
+    const hit = await c.match('/genimg/' + encodeURIComponent(name));
+    return hit ? URL.createObjectURL(await hit.blob()) : null;
+  }catch(e){ return null; }
 }
-// one img builder everywhere: instant real photo when we have one, AI-generation queue as fallback
+async function imgCachePut(name, blob){
+  try{
+    const c = await caches.open('cooksy-imgs');
+    await c.put('/genimg/' + encodeURIComponent(name), new Response(blob, { headers:{ 'content-type':'image/jpeg' } }));
+  }catch(e){}
+}
+// fast AI images: gemini-2.5-flash-image (nano banana) ~2-4s — generated ONCE per dish, cached forever
+async function genImage(r, cacheOnly){
+  if(NANO.has(r.name)) return NANO.get(r.name);
+  const stored = await imgCacheGet(r.name);
+  if(stored){ NANO.set(r.name, stored); return stored; }
+  if(cacheOnly || !settings.googleKey) return null;
+  const res = await fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=' + settings.googleKey,
+    { method:'POST', headers:{ 'content-type':'application/json' },
+      body: JSON.stringify({
+        contents:[{ parts:[{ text:
+          `Professional food photography of ${r.name}${r.img_query ? ' (' + r.img_query + ')' : ''}. ${r.description || ''} Realistic, appetizing, beautifully plated, natural window light, shallow depth of field, no text.` }] }],
+        generationConfig:{ responseModalities:['TEXT','IMAGE'], imageConfig:{ aspectRatio:'1:1' } }
+      }) });
+  if(!res.ok) throw new Error('image API ' + res.status);
+  const d = await res.json();
+  let b64 = null;
+  const parts = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts || [];
+  for(const p of parts){ if(p.inlineData && p.inlineData.data){ b64 = 'data:' + (p.inlineData.mimeType || 'image/png') + ';base64,' + p.inlineData.data; break; } }
+  if(!b64) throw new Error('no image in response');
+  const dataUrl = await shrinkDataUrl(b64, 640);
+  const blob = await (await fetch(dataUrl)).blob();
+  await imgCachePut(r.name, blob);
+  const url = URL.createObjectURL(blob);
+  NANO.set(r.name, url);
+  return url;
+}
+// fire-and-swap: UI renders instantly, generated images pop in as each one lands
+let warned429 = false;
+function resolveAIImages(recipes, cacheOnly){
+  (recipes || []).forEach(async r => {
+    try{
+      const url = await genImage(r, cacheOnly);
+      if(!url) return;
+      document.querySelectorAll(`img[data-nm="${CSS.escape(r.name)}"]`).forEach(el => {
+        // if the fallback queue is mid-load on this exact element, leave its handlers
+        // alone (they release the queue); otherwise detach them before swapping
+        if(el !== imgCurrent){
+          el.onload = null;
+          el.onerror = () => el.remove();
+          el.removeAttribute('data-src');
+        }
+        el.src = url;
+      });
+    }catch(err){
+      if(/429/.test(err.message) && !warned429){
+        warned429 = true;
+        toast('Google key needs billing for AI photos — using free generator');
+      }
+    }
+  });
+}
+// one img builder everywhere: generated image if we have it, free AI queue as fallback
 function imgTag(r, extra){
-  const direct = NANO.get(r.name) || r.photo || (r.img && r.img.startsWith('data:') ? r.img : null);
+  const direct = NANO.get(r.name) || (r.img && r.img.startsWith('data:') ? r.img : null);
   return direct
-    ? `<img ${extra || ''} src="${esc(direct)}" alt="" onerror="this.remove()">`
-    : `<img ${extra || ''} data-src="${esc(foodImgUrl(r))}" alt="">`;
+    ? `<img ${extra || ''} data-nm="${esc(r.name)}" src="${esc(direct)}" alt="" onerror="this.remove()">`
+    : `<img ${extra || ''} data-nm="${esc(r.name)}" data-src="${esc(foodImgUrl(r))}" alt="">`;
 }
 // pollinations allows ONE generation at a time per IP — parallel loads got 429'd
 // and looked "half generated". Strict client-side queue: one img loads at a time,
@@ -610,6 +655,7 @@ function imgTag(r, extra){
 const IMGQ = [];
 const IMG_DONE = new Set(); // urls that loaded once — re-renders show them instantly, no re-queue
 let imgBusy = false;
+let imgCurrent = null; // element the queue is loading right now
 function scanImgs(priority){
   document.querySelectorAll('img[data-src]:not([data-q])').forEach(el => {
     el.setAttribute('data-q', '1');
@@ -625,7 +671,8 @@ function pumpImgQ(){
   while((el = IMGQ.shift())){ if(document.contains(el) && !el.src) break; }
   if(!el) return;
   imgBusy = true;
-  const next = () => { el.onload = null; el.onerror = null; imgBusy = false; setTimeout(pumpImgQ, 400); };
+  imgCurrent = el;
+  const next = () => { el.onload = null; el.onerror = null; imgBusy = false; imgCurrent = null; setTimeout(pumpImgQ, 400); };
   el.onload = () => { IMG_DONE.add(el.dataset.src); next(); };
   el.onerror = () => {
     const n = +(el.dataset.r || 0);
@@ -639,25 +686,6 @@ function pumpImgQ(){
   el.src = el.dataset.src + (el.dataset.r ? '&retry=' + el.dataset.r : '');
 }
 
-// optional: Nano Banana Pro hero image via user's Google AI key
-async function nanoBanana(r){
-  const res = await fetch(
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent?key=' + settings.googleKey,
-    { method:'POST', headers:{ 'content-type':'application/json' },
-      body: JSON.stringify({
-        contents:[{ parts:[{ text:
-          `Professional food photography, appetizing hero shot of "${r.name}" — ${r.description || ''}. Plated beautifully, natural window light, shallow depth of field, no text.` }] }],
-        generationConfig:{ responseModalities:['TEXT','IMAGE'], imageConfig:{ aspectRatio:'1:1' } }
-      }) });
-  if(!res.ok) throw new Error('image API ' + res.status);
-  const d = await res.json();
-  let b64 = null;
-  const parts = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts || [];
-  for(const p of parts){ if(p.inlineData && p.inlineData.data){ b64 = 'data:' + (p.inlineData.mimeType || 'image/png') + ';base64,' + p.inlineData.data; break; } }
-  if(!b64) throw new Error('no image in response');
-  // downscale to keep localStorage sane
-  return shrinkDataUrl(b64, 640);
-}
 function shrinkDataUrl(dataUrl, maxPx){
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -980,6 +1008,7 @@ function renderCookHome(){
   }
   v.innerHTML = html;
   scanImgs();
+  if(lastRecipes) resolveAIImages(lastRecipes.recipes, true); // cache-only: no surprise cost on app open
 }
 
 const QUIZ_STEPS = [
@@ -1202,12 +1231,11 @@ Return ONLY JSON:
     loading(false);
     const recipes = (res.recipes || []).filter(r => r && r.name).slice(0,3);
     if(!recipes.length){ toast('Got a weird answer — try again'); return; }
-    // grab real photos BEFORE showing cards (parallel, <1s) — pictures appear instantly
-    await Promise.all(recipes.map(r => findPhoto(r).catch(() => null)));
     lastRecipes = { recipes, cravings: cravingStr, serve: serveStr, effort: ctx.effort, health: healthStr, at: Date.now() };
     store.set('lastRecipes', lastRecipes);
     quiz = null; // quiz finished — don't resume it on next Cook tab visit
     renderResults();
+    resolveAIImages(recipes); // cards are on screen; generated images pop in seconds later
   }catch(err){
     loading(false); apiErrorToast(err);
   }
@@ -1242,6 +1270,7 @@ function renderResults(){
     <p class="sub">Tap one to see the full recipe.</p>
     ${recipeCardsHtml(lastRecipes.recipes)}`;
   scanImgs();
+  resolveAIImages(lastRecipes.recipes); // generate any still-missing card images
 }
 
 let detailReturn = 'results';
@@ -1354,24 +1383,7 @@ function renderRecipeDetail(r){
     <button class="madeBtn" onclick="madeIt()">✅ I made it!</button>`;
   window.scrollTo({ top: 0 });
   scanImgs(true); // hero jumps the image queue — user is looking at it
-  upgradeHeroImg(r);
-}
-// swap in a Nano Banana Pro shot when a Google key is set (non-blocking)
-let warned429 = false;
-async function upgradeHeroImg(r){
-  if(!settings.googleKey || NANO.has(r.name) || (r.img && r.img.startsWith('data:'))) return;
-  try{
-    const img = await nanoBanana(r);
-    NANO.set(r.name, img); // session-only: persisting ~100KB data-URLs eats localStorage
-    const el = $('#heroImg');
-    if(currentRecipe === r && el){ el.onload = null; el.onerror = null; el.src = img; }
-  }catch(err){
-    // free photo already showing — just explain quota errors once
-    if(/429/.test(err.message) && !warned429){
-      warned429 = true;
-      toast('Google key has no image quota (needs billing) — using free photos');
-    }
-  }
+  resolveAIImages([r]);
 }
 
 /* ---- save recipe (favorites) ---- */
@@ -1539,19 +1551,8 @@ function renderHistory(){
   }
   v.innerHTML = html;
   scanImgs();
-  backfillPhotos();
-}
-// older saved/cooked entries predate real photos — fetch once, persist, re-render
-let backfilling = false;
-async function backfillPhotos(){
-  if(backfilling) return;
-  const pending = [...saved, ...cooked].map(e => e.recipe).filter(r => r && r.photo === undefined).slice(0, 15);
-  if(!pending.length) return;
-  backfilling = true;
-  await Promise.all(pending.map(r => findPhoto(r).catch(() => null)));
-  backfilling = false;
-  saveSaved(); saveCooked();
-  if(currentView === 'history') renderHistory();
+  // show already-generated images from the on-device cache; never regenerate for history rows
+  resolveAIImages([...saved, ...cooked].map(e => e.recipe).slice(0, 25), true);
 }
 function makeAgain(id){
   const c = cooked.find(x => x.id === id);
@@ -1567,9 +1568,9 @@ function settingsSheet(){
     <div class="quizLabel" style="text-align:left;margin:2px 0 8px">Claude API key</div>
     <input class="field" id="setKey" type="password" placeholder="sk-ant-…" value="${esc(settings.apiKey)}">
     <p class="hint">Get one at <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a>. Stored only on this device. Each recipe search costs roughly a cent.</p>
-    <div class="quizLabel" style="text-align:left;margin:14px 0 8px">Google AI key — optional, for Nano Banana Pro photos</div>
-    <input class="field" id="setGKey" type="password" placeholder="AIza… (leave empty = free AI photos)" value="${esc(settings.googleKey || '')}">
-    <p class="hint">Without it recipes still get free AI photos. With it (<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a>), the big recipe photo is generated by Nano Banana Pro (~13¢/image).</p>
+    <div class="quizLabel" style="text-align:left;margin:14px 0 8px">Google AI key — fast Nano Banana recipe photos</div>
+    <input class="field" id="setGKey" type="password" placeholder="AIza… (leave empty = slow free photos)" value="${esc(settings.googleKey || '')}">
+    <p class="hint">Get a key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a> and enable billing — image generation has zero free quota. ~4¢ per dish, generated once then cached on your phone forever.</p>
     <div class="quizLabel" style="text-align:left;margin:14px 0 8px">Pantry staples (always assumed)</div>
     <textarea class="field" id="setStaples">${esc(settings.staples.join(', '))}</textarea>
     <button class="sheetBtn" onclick="saveSettingsSheet()">Save ✅</button>
@@ -1675,8 +1676,10 @@ function runSelfTest(){
   A(qtyLabel({type:'text',label:'juice of 2'}) === 'juice of 2', 'qty text label');
   A(isPourable('lemon juice') && isPourable('Milk') && !isPourable('apple'), 'pourable detect');
   A(foodImgUrl({name:'corn lime pasta salad'}) === foodImgUrl({name:'corn lime pasta salad'}), 'img url deterministic');
-  A(imgTag({name:'x', photo:'https://p/x.jpg'}).includes('src="https://p/x.jpg"'), 'real photo wins');
-  A(imgTag({name:'y'}).includes('data-src='), 'fallback queues AI image');
+  NANO.set('__t__', 'data:image/jpeg;base64,x');
+  A(imgTag({name:'__t__'}).includes('src="data:image/jpeg;base64,x"'), 'generated img wins');
+  NANO.delete('__t__');
+  A(imgTag({name:'y'}).includes('data-src='), 'fallback queues free AI image');
   A(normStep('mix it').text === 'mix it' && normStep({text:'x', tip:'y'}).tip === 'y', 'step normalize');
   const mig = migrateLevels({ name:'m', minutes:5, ingredients:[{item:'a'}], steps:['s'] });
   A(mig.levels.classic.steps[0] === 's' && mig.levels.classic.ingredients[0].item === 'a', 'legacy migrate');
