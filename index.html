@@ -336,7 +336,7 @@ textarea.field{resize:vertical;min-height:80px}
 
 <script>
 'use strict';
-const APP_VERSION = 10;
+const APP_VERSION = 11;
 /* ================= data ================= */
 const store = {
   get(k, d){ try{ const v = JSON.parse(localStorage.getItem('cooksy.'+k)); return v === null || v === undefined ? d : v }catch(e){ return d } },
@@ -995,6 +995,18 @@ const QUIZ_STEPS = [
       ['🍛','indian','curry · dal · masala'],
       ['🍔','comfort food','burgers · mac & cheese · bakes']
     ] },
+  { key:'health', q:'Keep it healthy?', multi:true,
+    opts:[
+      ['🚫','sugar-free','no added sugar at all'],
+      ['🤏','less sugar','light on sweeteners'],
+      ['💧','oil-free','no oil or butter'],
+      ['🥄','less oil','minimal fats'],
+      ['🧂','low salt','easy on sodium'],
+      ['🍞','low carb','skip bread · pasta · sugar'],
+      ['💪','high protein','meat · eggs · legumes'],
+      ['🥦','extra veggies','pack the greens in'],
+      ['🔥','nothing fried','baked · grilled · fresh']
+    ] },
   { key:'effort',  q:'How much effort today?', multi:false,
     opts:[
       ['⚡','quick (under 20 min)','omelette · quesadilla · stir-fry'],
@@ -1010,7 +1022,7 @@ const QUIZ_STEPS = [
 function startQuiz(){
   if(!settings.apiKey){ toast('Add your API key in ⚙️ first'); settingsSheet(); return; }
   if(fridge.length < 2){ toast('Add a few fridge items first 🧊'); nav('fridge'); return; }
-  quiz = { step:0, meal:null, serve:null, taste:new Set(), texture:new Set(), cuisine:new Set(), effort:null, vibe:null };
+  quiz = { step:0, meal:null, serve:null, taste:new Set(), texture:new Set(), cuisine:new Set(), health:new Set(), effort:null, vibe:null };
   renderQuiz();
 }
 function renderQuiz(){
@@ -1067,6 +1079,7 @@ async function findRecipes(){
   if(quiz.vibe)         cravings.push('vibe: ' + quiz.vibe);
   const cravingStr = cravings.length ? cravings.join('; ') : 'surprise me — anything tasty';
   const serveStr = quiz.serve || '1-2 servings';
+  const healthStr = quiz.health.size ? [...quiz.health].join(', ') : '';
   const fridgeStr = fridge.map(f => `- ${f.name} (${qtyLabel(f.qty)})`).join('\n');
   const recent = cooked.slice(0,5).map(c => c.recipe.name).join(', ');
   loading(true, 'recipes');
@@ -1078,6 +1091,7 @@ ${fridgeStr}
 
 Pantry staples I always have (assume available): ${settings.staples.join(', ')}
 My cravings right now: ${cravingStr}
+${healthStr ? `HEALTH REQUIREMENTS (hard constraints, never violate): ${healthStr}. "sugar-free" means ZERO added sugar — no sugar, honey, maple syrup, or other sweeteners; use fruit if sweetness is needed. "oil-free" means no oil or butter — use water sauté, baking, or steaming.` : ''}
 ${recent ? 'Recently cooked (do not repeat these): ' + recent : ''}
 
 Suggest exactly 3 different realistic dishes I can cook right now, primarily from my fridge items plus staples. Respect my quantities. Each dish may need AT MOST 2 ingredients I would have to buy. Match the cravings. Be concise.
@@ -1088,7 +1102,7 @@ Return ONLY JSON:
     loading(false);
     const recipes = (res.recipes || []).filter(r => r && r.name).slice(0,3);
     if(!recipes.length){ toast('Got a weird answer — try again'); return; }
-    lastRecipes = { recipes, cravings: cravingStr, serve: serveStr, effort: quiz.effort, at: Date.now() };
+    lastRecipes = { recipes, cravings: cravingStr, serve: serveStr, effort: quiz.effort, health: healthStr, at: Date.now() };
     store.set('lastRecipes', lastRecipes);
     quiz = null; // quiz finished — don't resume it on next Cook tab visit
     renderResults();
@@ -1154,6 +1168,7 @@ async function fetchLevel(r, level){
 My fridge: ${fridge.map(f => f.name + ' (' + qtyLabel(f.qty) + ')').join(', ')}
 Staples I have: ${settings.staples.join(', ')}
 ${lastRecipes && lastRecipes.cravings ? 'Suggested for cravings: ' + lastRecipes.cravings : ''}
+${lastRecipes && lastRecipes.health ? `HEALTH REQUIREMENTS (hard constraints for EVERY version, including gourmet): ${lastRecipes.health}. "sugar-free" = ZERO added sugar/honey/syrup (fruit ok). "oil-free" = no oil or butter.` : ''}
 
 Scale to what I have, for ${(lastRecipes && lastRecipes.serve) || '1-2 servings'}. Max 10 concise steps.
 Most steps should carry a genuinely useful tip: technique, timing, texture, or a common mistake to avoid (e.g. "rinse cut potatoes in cold water to wash off starch, then pat dry — that's what makes them crispy").
