@@ -485,11 +485,8 @@ function addToFridge(name, qty, emoji, category){
 /* ================= claude api ================= */
 const MODEL_SMART = 'claude-sonnet-5';        // recipe ideas + full recipes
 const MODEL_FAST  = 'claude-haiku-4-5-20251001'; // photo scan + usage math — much faster
-async function claude(content, system, maxTokens, model, prefill){
+async function apiFetch(body){
   if(!settings.apiKey) throw new Error('NO_KEY');
-  const messages = [{ role:'user', content }];
-  // prefill forces the reply to start mid-JSON — no preamble possible
-  if(prefill) messages.push({ role:'assistant', content: prefill });
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
     headers:{
@@ -498,20 +495,14 @@ async function claude(content, system, maxTokens, model, prefill){
       'anthropic-version':'2023-06-01',
       'anthropic-dangerous-direct-browser-access':'true'
     },
-    body: JSON.stringify({
-      model: model || MODEL_SMART,
-      max_tokens: maxTokens || 3000,
-      system: system || 'You are a helpful cooking assistant. Respond with ONLY valid JSON. No markdown fences, no commentary.',
-      messages
-    })
+    body: JSON.stringify(body)
   });
   if(!r.ok){
     let msg = 'API error ' + r.status;
     try{ const e = await r.json(); msg += ': ' + (e.error && e.error.message || '').slice(0,140) }catch(_){}
     throw new Error(msg);
   }
-  const d = await r.json();
-  return (prefill || '') + (d.content || []).map(b => b.text || '').join('');
+  return r.json();
 }
 
 function parseJSONLoose(t){
@@ -521,13 +512,28 @@ function parseJSONLoose(t){
   return JSON.parse(t.slice(s, e+1));
 }
 
+// forced tool call — the API returns parsed JSON as the tool input, no text parsing
 async function askJSON(content, system, maxTokens, model){
+  const attempt = async extra => {
+    const d = await apiFetch({
+      model: model || MODEL_SMART,
+      max_tokens: (maxTokens || 3000) + extra,
+      system: system || 'You are a helpful cooking assistant.',
+      messages: [{ role:'user', content }],
+      tools: [{ name:'emit_json', description:'Emit the result in exactly the JSON shape the user asked for.',
+        input_schema:{ type:'object', additionalProperties:true } }],
+      tool_choice: { type:'tool', name:'emit_json' }
+    });
+    const tu = (d.content || []).find(b => b.type === 'tool_use');
+    if(tu && tu.input && typeof tu.input === 'object' && Object.keys(tu.input).length) return tu.input;
+    // fallback: model answered with plain text anyway
+    return parseJSONLoose((d.content || []).map(b => b.text || '').join(''));
+  };
   try{
-    return parseJSONLoose(await claude(content, system, maxTokens, model, '{'));
+    return await attempt(0);
   }catch(err){
-    if(err.message === 'NO_KEY' || /^API error/.test(err.message)) throw err;
-    // one retry on malformed/truncated JSON, with more room
-    return parseJSONLoose(await claude(content, system, (maxTokens || 3000) + 1000, model, '{'));
+    if(err.message === 'NO_KEY' || /^API error (400|401|403)/.test(err.message)) throw err;
+    return attempt(1500); // retry with more room for truncation
   }
 }
 
